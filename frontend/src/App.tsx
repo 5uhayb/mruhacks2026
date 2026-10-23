@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { isAxiosError } from 'axios'
 import { chat, getHealth, type Health } from './api'
 
 type Message = { role: 'user' | 'ai'; text: string; imageUrl?: string }
@@ -29,8 +30,9 @@ function App() {
     try {
       const reply = await chat(userMsg.text, image ?? undefined)
       setMessages((m) => [...m, { role: 'ai', text: reply }])
-    } catch {
-      setMessages((m) => [...m, { role: 'ai', text: 'Something went wrong. Try again.' }])
+    } catch (err) {
+      const detail = isAxiosError(err) ? err.response?.data?.detail : undefined
+      setMessages((m) => [...m, { role: 'ai', text: detail ?? 'Something went wrong. Try again.' }])
     } finally {
       setLoading(false)
     }
