@@ -25,3 +25,13 @@ export async function predict(values: number[]): Promise<Predict> {
   const res = await api.post('/predict', { values })
   return PredictSchema.parse(res.data)
 }
+
+const ChatSchema = z.object({ reply: z.string() })
+
+export async function chat(message: string, image?: File): Promise<string> {
+  const form = new FormData()
+  form.append('message', message)
+  if (image) form.append('image', image)
+  const res = await api.post('/chat', form)
+  return ChatSchema.parse(res.data).reply
+}

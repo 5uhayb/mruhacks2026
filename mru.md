@@ -1,26 +1,26 @@
 # MRUHacks 2026 Prep Guide
 
-> MRUHacks is Mount Royal University's (Calgary) annual student hackathon. It's free, but you have to register.
-> Past editions ran about 24 hours in early-to-mid October (2023: Oct 13–14, 2024: Oct 5, 2025: Oct 4–5), held in the Riddell Library & Learning Centre.
-> **Check [mruhacks.ca](https://www.mruhacks.ca) for this year's dates, schedule, tracks, and prizes.**
+> MRUHacks is Mount Royal University's (Calgary) annual student hackathon. Free, with food and swag provided. Open to all post-secondary students.
+> Schedule, tracks, prizes and rules are behind the login at [mruhacks.ca/dashboard](https://mruhacks.ca/dashboard/events/mruhacks-2026) and on the Discord.
 
 ---
 
-## 1. Key Info (fill in)
+## 1. Key Info
 
 | Item | Details |
 |---|---|
-| Dates / times | |
-| Location / room | |
+| Dates | **October 23–25, 2026** (36 hours of hacking) |
+| Location | Riddell Library & Learning Centre, Mount Royal University |
 | Check-in time | |
 | Hacking starts | |
 | Submission deadline | |
 | Judging / demos | |
-| Submission platform (Devpost?) | |
-| Discord / comms channel
-
-| Sponsor prizes | |
-| Team size limit | |
+| Submission platform | |
+| Discord | https://discord.com/invite/e7Fg6jsnrm |
+| Tracks / themes | |
+| Prizes / sponsor prizes | Main sponsor: Arcurve |
+| Pre-written code allowed? | |
+| Team size limit | **Up to 5** (find teammates on the Discord) |
 
 ---
 
