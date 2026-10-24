@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react'
 import type { Simulation, ShockSide } from '../../api'
-import { money, num, pct } from '../../format'
+import { formatMoney, formatNumber, formatPct } from '../../lib/format'
 import { Section, useSize } from '../ui'
 
 const ROWS: { key: keyof ShockSide; label: string; fmt: (v: number) => string }[] = [
-  { key: 'access_pct', label: 'Has electricity', fmt: pct },
-  { key: 'renewable_pct', label: 'Clean electricity', fmt: pct },
-  { key: 'solar_mw', label: 'Solar built', fmt: (v) => `${num(v)} MW` },
-  { key: 'fund', label: 'Savings fund', fmt: (v) => money(v) },
+  { key: 'access_pct', label: 'Has electricity', fmt: formatPct },
+  { key: 'renewable_pct', label: 'Clean electricity', fmt: formatPct },
+  { key: 'solar_mw', label: 'Solar built', fmt: (v) => `${formatNumber(v)} MW` },
+  { key: 'fund', label: 'Savings fund', fmt: (v) => formatMoney(v) },
 ]
 
 /** 500 faint lines, one per future, drawn in when the panel opens */
@@ -84,8 +84,8 @@ export default function StressTab({ sim }: { sim: Simulation }) {
         <p className="mt-3 text-[0.9rem] leading-snug">
           Each line replays random 3-year stretches of this country's real {f.resource} income swings.
           In 9 out of 10 futures, {useAccess ? 'electricity access' : 'clean electricity'} still reaches{' '}
-          <span className="num text-gold">{pct(useAccess ? f.access_p10 : f.clean_p10)}</span>
-          {useAccess ? '' : `, and electricity access stays at ${pct(f.access_p10)}`}.
+          <span className="num text-gold">{formatPct(useAccess ? f.access_p10 : f.clean_p10)}</span>
+          {useAccess ? '' : `, and electricity access stays at ${formatPct(f.access_p10)}`}.
           The plan keeps at least 90% of its spending on track in <span className="num">{Math.round(f.p_funded * 100)}%</span> of futures.
         </p>
       </Section>

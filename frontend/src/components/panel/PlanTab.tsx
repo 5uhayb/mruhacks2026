@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { SECTORS, type AssumptionSpec, type Country, type Optimized, type Sector, type Simulation, type Split } from '../../api'
-import { money, num, pct } from '../../format'
+import { formatMoney, formatNumber, formatPct } from '../../lib/format'
 import { CountUp, Section, Stat } from '../ui'
 
 const LABEL: Record<Sector, string> = { solar: 'Solar farms', rail: 'Rail', fund: 'Savings fund' }
@@ -71,10 +71,10 @@ export default function PlanTab({ country, sim, share, setShare, split, setSplit
     : []
   return (
     <>
-      <Section title="Investment" right={sim ? `${money(sim.base_revenue)} a year of ${country.resource} income` : undefined}>
+      <Section title="Investment" right={sim ? `${formatMoney(sim.base_revenue)} a year of ${country.resource} income` : undefined}>
         <div className="flex items-baseline justify-between">
           <span className="text-[1rem]">Invest <span className="num text-gold">{Math.round(share * 100)}%</span> of {country.resource} income</span>
-          {sim && <span className="num text-gold text-[1.1rem]"><CountUp value={sim.pool} format={(v) => money(v)} /> / yr</span>}
+          {sim && <span className="num text-gold text-[1.1rem]"><CountUp value={sim.pool} format={(v) => formatMoney(v, 2)} /> / yr</span>}
         </div>
         <input className="big mt-2" type="range" min={0} max={0.3} step={0.01} value={share} onChange={(e) => setShare(Number(e.target.value))} aria-label="Share of resource income invested" />
         <div className="mt-3 grid grid-cols-3 gap-4">
@@ -101,11 +101,11 @@ export default function PlanTab({ country, sim, share, setShare, split, setSplit
       {sim && y && (
         <Section title="In 10 years" right="Estimates">
           <div className="grid grid-cols-2 gap-x-6 gap-y-5">
-            <Stat accent="gold" label="Solar built" value={<CountUp value={y.solar_mw} format={(v) => `${num(v)} MW`} />} sub={`As much power as ${num(y.homes)} homes use`} />
-            <Stat accent="gold" label="Has electricity" value={<CountUp value={y.access_pct} format={(v) => pct(v)} />}
-              sub={sim.access_full_year && sim.start.access < 99.95 ? `Everyone by year ${sim.access_full_year}, from ${pct(sim.start.access)}` : `From ${pct(sim.start.access)} today`} />
-            <Stat accent="gold" label="Savings fund" value={<CountUp value={y.fund} format={(v) => money(v)} />} sub={`Covers about ${num(sim.months_covered)} months of ${country.resource} income`} />
-            <Stat accent="gold" label="Clean electricity" value={<CountUp value={y.renewable_pct} format={(v) => pct(v)} />} sub={`From ${pct(sim.start.clean)} today · ${num(y.rail_km)} km rail funded`} />
+            <Stat accent="gold" label="Solar built" value={<CountUp value={y.solar_mw} format={(v) => `${formatNumber(v)} MW`} />} sub={`As much power as ${formatNumber(y.homes)} homes use`} />
+            <Stat accent="gold" label="Has electricity" value={<CountUp value={y.access_pct} format={(v) => formatPct(v)} />}
+              sub={sim.access_full_year && sim.start.access < 99.95 ? `Everyone by year ${sim.access_full_year}, from ${formatPct(sim.start.access)}` : `From ${formatPct(sim.start.access)} today`} />
+            <Stat accent="gold" label="Savings fund" value={<CountUp value={y.fund} format={(v) => formatMoney(v)} />} sub={`Covers about ${formatNumber(sim.months_covered)} months of ${country.resource} income`} />
+            <Stat accent="gold" label="Clean electricity" value={<CountUp value={y.renewable_pct} format={(v) => formatPct(v)} />} sub={`From ${formatPct(sim.start.clean)} today · ${formatNumber(y.rail_km)} km rail funded`} />
           </div>
           <div className="mt-5 h-[150px]">
             <div className="text-mute mb-1 flex gap-4 text-[0.75rem]">
@@ -117,7 +117,7 @@ export default function PlanTab({ country, sim, share, setShare, split, setSplit
                 <CartesianGrid stroke="#1e2638" vertical={false} />
                 <XAxis dataKey="year" {...AXIS} tickFormatter={(v) => (v === 0 ? 'now' : `+${v}`)} />
                 <YAxis {...AXIS} domain={[0, 100]} ticks={[0, 50, 100]} tickFormatter={(v) => `${v}%`} />
-                <Tooltip contentStyle={{ background: '#0d1320', border: '1px solid #1e2638', borderRadius: 6, fontSize: 12 }} formatter={(v, n) => [pct(Number(v)), n === 'plan' ? 'With plan' : 'No plan']} labelFormatter={(v) => (v === 0 ? 'Now' : `Year ${v}`)} />
+                <Tooltip contentStyle={{ background: '#0d1320', border: '1px solid #1e2638', borderRadius: 6, fontSize: 12 }} formatter={(v, n) => [formatPct(Number(v)), n === 'plan' ? 'With plan' : 'No plan']} labelFormatter={(v) => (v === 0 ? 'Now' : `Year ${v}`)} />
                 <Line dataKey="none" stroke="#8a94a8" strokeDasharray="4 4" strokeWidth={1.5} dot={false} animationDuration={500} />
                 <Line dataKey="plan" stroke="#f2a93b" strokeWidth={2.5} dot={false} animationDuration={500} />
               </LineChart>

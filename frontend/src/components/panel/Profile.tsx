@@ -1,5 +1,5 @@
 import type { Country } from '../../api'
-import { money, num, pct } from '../../format'
+import { formatMoney, formatNumber, formatPct } from '../../lib/format'
 import { Section, Sparkline, Stat } from '../ui'
 
 function percentileText(p: number, kind: string): string | null {
@@ -33,22 +33,22 @@ export default function Profile({ country }: { country: Country }) {
 
       <Section title="Today">
         <div className="grid grid-cols-2 gap-x-6 gap-y-5">
-          <Stat label={`Has electricity · ${s.electricity_access_pct_year ?? ''}`} value={pct(s.electricity_access_pct)} />
-          <Stat label={`Clean electricity · ${s.renewable_electricity_pct_year ?? ''}`} value={pct(s.renewable_electricity_pct)} />
+          <Stat label={`Has electricity · ${s.electricity_access_pct_year ?? ''}`} value={formatPct(s.electricity_access_pct)} />
+          <Stat label={`Clean electricity · ${s.renewable_electricity_pct_year ?? ''}`} value={formatPct(s.renewable_electricity_pct)} />
           <Stat
             label={`${country.resource} income · ${r.years ? `${r.years[0]}–${r.years[r.years.length - 1]} avg` : ''}`}
-            value={money(r.avg)}
-            sub={r.per_person != null ? `$${num(r.per_person)} per person a year` : 'No resource income data'}
+            value={formatMoney(r.avg)}
+            sub={r.per_person != null ? `$${formatNumber(r.per_person)} per person a year` : 'No resource income data'}
           />
           <Stat
             label="Sunlight"
-            value={<>{num(country.sun.value, 1)}<span className="text-mute ml-1 text-[0.8rem]">kWh/m²/day</span></>}
+            value={<>{formatNumber(country.sun.value, 1)}<span className="text-mute ml-1 text-[0.8rem]">kWh/m²/day</span></>}
             sub={country.sun.value && country.sun.oslo ? `${(country.sun.value / country.sun.oslo).toFixed(1)}× Oslo · ${country.sun.site} (NASA)` : undefined}
           />
         </div>
         {r.low && r.high && (
           <p className="text-mute mt-4 text-[0.82rem]">
-            {country.resource[0].toUpperCase() + country.resource.slice(1)} income ranged from {money(r.low.revenue)} ({r.low.year}) to {money(r.high.revenue)} ({r.high.year}) over the last 10 years of data.
+            {country.resource[0].toUpperCase() + country.resource.slice(1)} income ranged from {formatMoney(r.low.revenue)} ({r.low.year}) to {formatMoney(r.high.revenue)} ({r.high.year}) over the last 10 years of data.
           </p>
         )}
       </Section>
