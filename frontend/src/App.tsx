@@ -23,7 +23,7 @@ import PlanTab from './components/panel/PlanTab'
 import Profile from './components/panel/Profile'
 import StressTab from './components/panel/StressTab'
 import TwinsTab from './components/panel/TwinsTab'
-import { Boundary, hasWebGL, loadFeatures, type CountryFeature } from './components/ui'
+import { Boundary, accessColor, hasWebGL, loadFeatures, type CountryFeature } from './components/ui'
 
 const DEFAULT_SPLIT: Split = { solar: 40, rail: 30, fund: 30 }
 
@@ -58,6 +58,7 @@ function App() {
   const [overrides, setOverrides] = useState<Record<string, number>>({})
   const [year, setYear] = useState<number | null>(null)
   const [systemOpen, setSystemOpen] = useState(false)
+  const [usePlan, setUsePlan] = useState(true)
   const [country, setCountry] = useState<Country | null>(null)
   const [twins, setTwins] = useState<Twins | null>(null)
   const [sim, setSim] = useState<Simulation | null>(null)
@@ -167,17 +168,30 @@ function App() {
     }
   }, [selected, share, split, overrides])
 
-  const select = useCallback((iso: string | null) => setSelected(iso), [])
+  // Picking a new country always starts on its Profile (a shared URL can still open any tab directly)
+  const select = useCallback((iso: string | null) => {
+    setSelected(iso)
+    setTab('Profile')
+  }, [])
+
+  // The Plan tab shows its effect on the globe: jump the timeline to the projected end year
+  useEffect(() => {
+    if (tab === 'Plan' && world) setYear((y) => (y == null || y <= lastMeasured ? lastMeasured + 10 : y))
+  }, [tab, world, lastMeasured])
 
   if (!hasWebGL()) {
     return <main className="text-mute grid h-full place-items-center p-8">This app needs WebGL for the 3D globe. Try a recent Chrome, Edge or Firefox.</main>
   }
 
-  const y = sim?.years[sim.years.length - 1]
-  const plan = sim && y
-    ? { access10: y.access_pct, strength: Math.min(1, 0.5 * ((y.access_pct - sim.start.access) / Math.max(1, 100 - sim.start.access)) + 0.5 * (y.renewable_pct / 100)) }
-    : null
   const panelOpen = !!selected
+  const panelWidth = panelOpen ? Math.min(Math.max(window.innerWidth * 0.4, 440), 640) + 16 : 0
+  // The selected country's access by calendar year under the current plan
+  const planPath = sim && usePlan && sim.start.access_year
+    ? Object.fromEntries(sim.years.map((r) => [sim.start.access_year! + r.year, r.access_pct]))
+    : null
+  const overlay = sim && tab === 'Plan'
+    ? { sites: sim.sites, rail: { coords: sim.rail.coords, fraction: sim.rail.route_km ? sim.rail.funded_km / sim.rail.route_km : 0 } }
+    : null
 
   return (
     <main className="relative h-full overflow-hidden">
@@ -185,9 +199,9 @@ function App() {
         <Globe
           features={features}
           countries={countries}
-          state={{ year: shownYear, lastMeasured, selected, plan: tab === 'Plan' ? plan : null, twins: tab === 'Twins' || tab === 'Profile' ? twins : null }}
+          state={{ year: shownYear, lastMeasured, selected, planPath, overlay, twins: tab === 'Twins' ? twins : null }}
           onSelect={select}
-          panelOpen={panelOpen}
+          panelFraction={panelWidth / window.innerWidth}
         />
       )}
       {!world && <div className="text-mute absolute inset-0 grid place-items-center text-[0.9rem]">{error ?? 'Loading the world…'}</div>}
@@ -200,9 +214,20 @@ function App() {
           <p className="text-mute mt-1 text-[0.85rem]">Click a country, or press Ctrl K to search.</p>
         </div>
       )}
+      {world && selected && (
+        <div className="fade text-mute pointer-events-none absolute top-[72px] left-5 z-10 flex items-center gap-2 text-[0.72rem]">
+          <span>Electricity access {shownYear}</span>
+          <span className="flex h-2 w-24 overflow-hidden rounded-sm">
+            {[0, 25, 50, 75, 100].map((v) => <span key={v} className="flex-1" style={{ background: accessColor(v) }} />)}
+          </span>
+          <span>0 → 100%</span>
+          <span className="text-gold/80 ml-2">gold tint = projected</span>
+        </div>
+      )}
 
       {world && (
-        <TimeScrubber years={world.years} year={shownYear} lastMeasured={lastMeasured} setYear={setYear} rightInset={panelOpen ? Math.min(Math.max(window.innerWidth * 0.4, 440), 640) + 16 : 0} />
+        <TimeScrubber years={world.years} year={shownYear} lastMeasured={lastMeasured} setYear={setYear} rightInset={panelWidth}
+          plan={selected && sim ? { country: country?.name ?? selected, value: planPath?.[shownYear] ?? null, usePlan, setUsePlan } : null} />
       )}
 
       <Boundary label="System log">

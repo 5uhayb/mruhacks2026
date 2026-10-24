@@ -1,14 +1,24 @@
+import { geoInterpolate } from 'd3-geo'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import GlobeGL, { type GlobeMethods } from 'react-globe.gl'
 import { MeshPhongMaterial } from 'three'
 import type { Twins, WorldCountry } from '../api'
 import { NO_DATA, accessColor, centroidOf, isoOf, planColor, projectedColor, useSize, type CountryFeature } from './ui'
 
+export type PlanOverlay = {
+  sites: { site: string; lat: number; lon: number; mw: number }[]
+  rail: { coords: [number, number][] | null; fraction: number }
+}
+
 export type GlobeState = {
   year: number
   lastMeasured: number
   selected: string | null
-  plan: { access10: number; strength: number } | null
+  /** Selected country's projected access by calendar year, with the user's plan (null = no plan / baseline) */
+  planPath: Record<number, number> | null
+  /** Solar sites and rail corridor, shown on the Plan tab only */
+  overlay: PlanOverlay | null
+  /** Historical twins, shown on the Twins tab only */
   twins: Twins | null
 }
 
@@ -22,14 +32,35 @@ export function accessIn(c: WorldCountry | undefined, year: number, lastMeasured
 }
 
 type Arc = { startLat: number; startLng: number; endLat: number; endLng: number }
-type Label = { lat: number; lng: number; text: string }
+type Marker = { kind: 'twin' | 'solar'; lat: number; lng: number; text: string; stack: number }
+type RailPath = { points: [number, number][]; color: string; dash: number; gap: number }
 
-export default function Globe({ features, countries, state, onSelect, panelOpen }: {
+/** Labels closer than ~7° stack upward so neighbours (e.g. Iraq and Kuwait) never overlap */
+function stack<T extends { lat: number; lng: number }>(items: T[]): (T & { stack: number })[] {
+  const out: (T & { stack: number })[] = []
+  for (const it of items) {
+    const near = out.filter((o) => Math.hypot(o.lat - it.lat, o.lng - it.lng) < 7)
+    out.push({ ...it, stack: near.length })
+  }
+  return out
+}
+
+function routePoints(coords: [number, number][], fraction: number): [number, number][] {
+  const [[lat1, lng1], [lat2, lng2]] = coords
+  const interp = geoInterpolate([lng1, lat1], [lng2, lat2])
+  return Array.from({ length: 41 }, (_, i) => {
+    const [lng, lat] = interp((i / 40) * fraction)
+    return [lat, lng] as [number, number]
+  })
+}
+
+export default function Globe({ features, countries, state, onSelect, panelFraction }: {
   features: CountryFeature[]
   countries: Map<string, WorldCountry>
   state: GlobeState
   onSelect: (iso3: string | null) => void
-  panelOpen: boolean
+  /** Share of the screen width covered by the side panel (0 when closed) */
+  panelFraction: number
 }) {
   const [ref, size] = useSize<HTMLDivElement>()
   const globe = useRef<GlobeMethods | undefined>(undefined)
@@ -37,7 +68,7 @@ export default function Globe({ features, countries, state, onSelect, panelOpen 
   const material = useMemo(() => new MeshPhongMaterial({ color: '#0b1222', shininess: 6 }), [])
   const byIso = useMemo(() => new Map(features.map((f) => [isoOf(f), f])), [features])
 
-  // Idle: slow rotation. Selected: fly to the country, offset left so the side panel doesn't cover it
+  // Idle: slow rotation. Selected: fly to the country and center it in the part of the screen the panel leaves visible
   useEffect(() => {
     const g = globe.current
     if (!g || !size.width) return
@@ -48,38 +79,57 @@ export default function Globe({ features, countries, state, onSelect, panelOpen 
     if (f) {
       controls.autoRotate = false
       const c = centroidOf(f)
-      g.pointOfView({ lat: c.lat - 4, lng: c.lng + (panelOpen ? 22 : 0), altitude: 1.65 }, 1100)
+      g.pointOfView({ lat: c.lat - 4, lng: c.lng + 55 * panelFraction, altitude: 1.65 }, 1100)
     } else {
       controls.autoRotate = true
       g.pointOfView({ altitude: 2.4 }, 900)
     }
-  }, [state.selected, byIso, size.width, panelOpen])
+  }, [state.selected, byIso, size.width, panelFraction])
+
+  const selectedLastYear = useMemo(() => {
+    const c = state.selected ? countries.get(state.selected) : null
+    return c ? Math.max(...Object.keys(c.access).map(Number)) : state.lastMeasured
+  }, [state.selected, countries, state.lastMeasured])
 
   const color = (f: CountryFeature) => {
     const iso = isoOf(f)
-    const c = countries.get(iso)
-    const a = accessIn(c, state.year, state.lastMeasured)
-    if (iso === state.selected && state.plan) return planColor(state.plan.access10, state.plan.strength)
+    // The selected country follows the user's plan in projected years
+    if (iso === state.selected && state.planPath && state.year > selectedLastYear && state.planPath[state.year] != null) {
+      return planColor(state.planPath[state.year], 0.6)
+    }
+    const a = accessIn(countries.get(iso), state.year, state.lastMeasured)
     if (!a) return NO_DATA
     return a.projected ? projectedColor(a.value) : accessColor(a.value)
   }
 
-  const { arcs, labels } = useMemo(() => {
-    const t = state.twins
-    const from = state.selected ? byIso.get(state.selected) : null
-    if (!t || !from) return { arcs: [] as Arc[], labels: [] as Label[] }
-    const s = centroidOf(from)
+  const { arcs, markers, paths } = useMemo(() => {
     const arcs: Arc[] = []
-    const labels: Label[] = []
-    for (const tw of t.twins) {
-      const f = byIso.get(tw.iso3)
-      if (!f) continue
-      const e = centroidOf(f)
-      arcs.push({ startLat: s.lat, startLng: s.lng, endLat: e.lat, endLng: e.lng })
-      labels.push({ lat: e.lat, lng: e.lng, text: `${tw.country} ${tw.year} · ${Math.round(tw.similarity)}%` })
+    let markers: Marker[] = []
+    const paths: RailPath[] = []
+    const from = state.selected ? byIso.get(state.selected) : null
+    if (state.twins && from) {
+      const s = centroidOf(from)
+      const twinMarkers: Omit<Marker, 'stack'>[] = []
+      for (const tw of state.twins.twins) {
+        const f = byIso.get(tw.iso3)
+        if (!f) continue
+        const e = centroidOf(f)
+        arcs.push({ startLat: s.lat, startLng: s.lng, endLat: e.lat, endLng: e.lng })
+        twinMarkers.push({ kind: 'twin', lat: e.lat, lng: e.lng, text: `${tw.country} ${tw.year} · ${Math.round(tw.similarity)}%` })
+      }
+      markers = stack(twinMarkers)
     }
-    return { arcs, labels }
-  }, [state.twins, state.selected, byIso])
+    if (state.overlay) {
+      const built = state.overlay.sites.filter((x) => x.mw > 0).slice(0, 3)
+      markers = stack(built.map((x) => ({ kind: 'solar' as const, lat: x.lat, lng: x.lon, text: `${x.site} · ${Math.round(x.mw).toLocaleString('en-US')} MW` })))
+      const r = state.overlay.rail
+      if (r.coords) {
+        paths.push({ points: routePoints(r.coords, 1), color: 'rgba(138,148,168,0.8)', dash: 0.02, gap: 0.015 })
+        if (r.fraction > 0.005) paths.push({ points: routePoints(r.coords, Math.min(1, r.fraction)), color: '#f2a93b', dash: 1, gap: 0 })
+      }
+    }
+    return { arcs, markers, paths }
+  }, [state.twins, state.overlay, state.selected, byIso])
 
   return (
     <div ref={ref} className="absolute inset-0">
@@ -124,15 +174,32 @@ export default function Globe({ features, countries, state, onSelect, panelOpen 
           arcDashInitialGap={1}
           arcDashAnimateTime={2200}
           arcsTransitionDuration={600}
-          htmlElementsData={labels}
+          pathsData={paths}
+          pathPoints="points"
+          pathPointLat={(p) => (p as [number, number])[0]}
+          pathPointLng={(p) => (p as [number, number])[1]}
+          pathPointAlt={0.04}
+          pathColor={(p: object) => (p as RailPath).color}
+          pathStroke={2}
+          pathDashLength={(p: object) => (p as RailPath).dash}
+          pathDashGap={(p: object) => (p as RailPath).gap}
+          pathTransitionDuration={500}
+          htmlElementsData={markers}
           htmlLat="lat"
           htmlLng="lng"
-          htmlAltitude={0.02}
+          htmlAltitude={0.04}
           htmlElement={(d) => {
             // Plain DOM labels: far lighter than 3D text, and crisp at any zoom
+            const m = d as Marker
             const el = document.createElement('div')
-            el.className = 'twin-label'
-            el.textContent = (d as Label).text
+            el.className = m.kind === 'twin' ? 'twin-label' : 'solar-marker'
+            el.style.setProperty('--stack', String(m.stack))
+            if (m.kind === 'solar') {
+              const dot = document.createElement('span')
+              dot.className = 'pulse'
+              el.appendChild(dot)
+            }
+            el.appendChild(document.createTextNode(m.text))
             return el
           }}
         />

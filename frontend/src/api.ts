@@ -44,7 +44,7 @@ export type WorldCountry = {
 }
 export type World = { years: number[]; countries: WorldCountry[]; meta: Meta }
 
-export type Fact = { text: string; kind: string; value: number; year: number; percentile: number; sparkline: Point[] }
+export type Fact = { text: string; kind: string; unit: string; value: number; year: number; percentile: number; sparkline: Point[] }
 export type Factor = { label: string; value: number | null; effect: number }
 export type Scores = { rows: number; mae: number; baseline_mae: number; error_reduction: number; r2: number }
 export type ModelCard = {

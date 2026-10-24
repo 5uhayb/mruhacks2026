@@ -120,6 +120,7 @@ def world():
 class Fact(BaseModel):
     text: str
     kind: str
+    unit: str
     value: float
     year: int
     percentile: float

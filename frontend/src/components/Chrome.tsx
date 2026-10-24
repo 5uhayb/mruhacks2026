@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { WorldCountry } from '../api'
+import { formatPct } from '../lib/format'
 import { useLog } from '../log'
 
 /** Top bar: wordmark and country search. Cmd/Ctrl+K focuses it, Enter flies to the first match. */
@@ -96,12 +97,14 @@ export function CommandBar({ countries, onSelect, systemOpen, onToggleSystem }: 
 }
 
 /** Bottom scrubber: 1990 → today (measured) → +10 years (projected) */
-export function TimeScrubber({ years, year, lastMeasured, setYear, rightInset }: {
+export function TimeScrubber({ years, year, lastMeasured, setYear, rightInset, plan }: {
   years: number[]
   year: number
   lastMeasured: number
   setYear: (y: number) => void
   rightInset: number
+  /** The selected country's plan, if any: its projected access for this year and the with/without toggle */
+  plan: { country: string; value: number | null; usePlan: boolean; setUsePlan: (v: boolean) => void } | null
 }) {
   const [playing, setPlaying] = useState(false)
   const first = years[0]
@@ -134,9 +137,25 @@ export function TimeScrubber({ years, year, lastMeasured, setYear, rightInset }:
           <span className="text-gold/70 absolute right-0">{last} projected</span>
         </div>
       </div>
-      <div className="w-44 shrink-0 text-right">
+      {plan && (
+        <div className="border-edge bg-panel flex shrink-0 overflow-hidden rounded-md border text-[0.72rem]" role="group" aria-label="Projection">
+          {[true, false].map((v) => (
+            <button key={String(v)} onClick={() => plan.setUsePlan(v)}
+              className={`px-2.5 py-1.5 ${plan.usePlan === v ? 'bg-edge text-ink' : 'text-mute hover:text-ink'}`}>
+              {v ? 'With plan' : 'Without plan'}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="w-52 shrink-0 text-right">
         <div className={`num text-[1.6rem] leading-none ${projected ? 'text-gold' : ''}`}>{year}</div>
-        <div className="text-mute mt-1 text-[0.72rem]">{projected ? 'Projected access, no new plan' : 'Electricity access, measured'}</div>
+        <div className="text-mute mt-1 text-[0.72rem] leading-snug">
+          {!projected
+            ? 'Electricity access, measured'
+            : plan?.usePlan && plan.value != null
+              ? `Projected with your plan: ${plan.country} ${formatPct(plan.value)}`
+              : 'Projected, no new plan (impact model)'}
+        </div>
       </div>
     </div>
   )

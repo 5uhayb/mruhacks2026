@@ -56,7 +56,8 @@ input[type="text"]:focus, input[type="number"]:focus { border-color: var(--color
 .draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 900ms ease-out forwards; }
 
 .twin-label {
-  transform: translate(-50%, -140%);
+  /* --stack lifts labels that would sit on top of a neighbour */
+  transform: translate(-50%, calc(-140% - var(--stack, 0) * 125%));
   white-space: nowrap;
   pointer-events: none;
   font-family: "Geist Mono Variable", monospace;
@@ -67,6 +68,36 @@ input[type="text"]:focus, input[type="number"]:focus { border-color: var(--color
   border-radius: 4px;
   padding: 2px 6px;
 }
+
+.solar-marker {
+  transform: translate(-6px, calc(-50% - var(--stack, 0) * 140%));
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  font-family: "Geist Mono Variable", monospace;
+  font-size: 11px;
+  color: #f2a93b;
+  text-shadow: 0 0 3px #070b14, 0 0 3px #070b14;
+}
+.solar-marker .pulse {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f2a93b;
+  flex: none;
+}
+.solar-marker .pulse::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 1.5px solid #f2a93b;
+  animation: pulse 1.8s ease-out infinite;
+}
+@keyframes pulse { from { transform: scale(0.6); opacity: 0.9; } to { transform: scale(1.8); opacity: 0; } }
 
 .globe-tip {
   background: var(--color-panel);

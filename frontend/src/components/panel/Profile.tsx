@@ -7,12 +7,17 @@ function percentileText(p: number, kind: string): string | null {
   return p >= 50 ? `Top ${Math.max(1, Math.round(100 - p))}%` : `Bottom ${Math.max(1, Math.round(p))}%`
 }
 
+function trendYears(country: Country): string {
+  const years = country.facts.flatMap((f) => f.sparkline.map((p) => p.year))
+  return years.length ? `${Math.min(...years)}–${Math.max(...years)}` : 'n/a'
+}
+
 export default function Profile({ country }: { country: Country }) {
   const s = country.stats
   const r = country.revenue
   return (
     <>
-      <Section title="What stands out" right="World percentile · last 20 years">
+      <Section title="What stands out" right={`World percentile · 20-year trend (${trendYears(country)})`}>
         <ul className="space-y-4">
           {country.facts.map((f) => {
             const badge = percentileText(f.percentile, f.kind)
@@ -24,7 +29,7 @@ export default function Profile({ country }: { country: Country }) {
                     {badge && <span className="text-mute">{badge} of countries · </span>}World Bank, {f.year}
                   </div>
                 </div>
-                <Sparkline points={f.sparkline} />
+                <Sparkline points={f.sparkline} unit={f.unit} />
               </li>
             )
           })}

@@ -50,18 +50,29 @@ export function CountUp({ value, format }: { value: number; format: (v: number) 
   return <span className="num">{format(shown)}</span>
 }
 
-export function Sparkline({ points, width = 96, height = 26, color = '#e8ecf3' }: { points: Point[]; width?: number; height?: number; color?: string }) {
+export function Sparkline({ points, width = 96, height = 26, color = '#e8ecf3', unit = '' }: {
+  points: Point[]
+  width?: number
+  height?: number
+  color?: string
+  unit?: string
+}) {
   if (points.length < 2) return <svg width={width} height={height} />
   const xs = points.map((p) => p.year)
   const ys = points.map((p) => p.value)
   const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
-  const sx = (x: number) => ((x - x0) / (x1 - x0 || 1)) * (width - 4) + 2
-  const sy = (y: number) => height - 2 - ((y - y0) / (y1 - y0 || 1)) * (height - 4)
-  const last = points[points.length - 1]
+  const sx = (x: number) => ((x - x0) / (x1 - x0 || 1)) * (width - 6) + 3
+  const sy = (y: number) => height - 3 - ((y - y0) / (y1 - y0 || 1)) * (height - 6)
+  const [first, last] = [points[0], points[points.length - 1]]
+  const n = (v: number) => v.toLocaleString('en-US', { maximumFractionDigits: v < 10 ? 2 : 0 })
+  const fmt = (v: number) => (unit === '$' ? `$${n(v)}` : unit === 'kWh' ? `${n(v)} kWh` : `${n(v)}${unit}`)
   return (
-    <svg width={width} height={height} className="shrink-0">
+    <svg width={width} height={height} className="shrink-0 cursor-help">
+      {/* Native tooltip: years and range */}
+      <title>{`${first.year}: ${fmt(first.value)} → ${last.year}: ${fmt(last.value)} · min ${fmt(y0)}, max ${fmt(y1)}`}</title>
       <polyline points={points.map((p) => `${sx(p.year)},${sy(p.value)}`).join(' ')} fill="none" stroke={color} strokeWidth={1.25} strokeOpacity={0.85} />
-      <circle cx={sx(last.year)} cy={sy(last.value)} r={2} fill={color} />
+      <circle cx={sx(first.year)} cy={sy(first.value)} r={1.8} fill="none" stroke={color} strokeWidth={1} />
+      <circle cx={sx(last.year)} cy={sy(last.value)} r={2.2} fill={color} />
     </svg>
   )
 }

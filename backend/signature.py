@@ -80,7 +80,8 @@ def facts(iso3: str) -> list[dict]:
 
     def add(col, score, text, value, year, percentile, kind):
         base = col.split(":")[0]
-        out.append({"indicator": col, "score": score, "text": text, "value": value, "year": int(year),
+        unit = LEVELS[base][0] if base in LEVELS else "%"
+        out.append({"indicator": col, "unit": unit, "score": score, "text": text, "value": value, "year": int(year),
                     "percentile": percentile, "kind": kind, "sparkline": model.series(iso3, base, SPAN)})
 
     for col, (unit, high, low) in LEVELS.items():
