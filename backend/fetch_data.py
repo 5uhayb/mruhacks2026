@@ -202,6 +202,19 @@ def fetch_panel() -> pd.DataFrame:
     return wide
 
 
+def fetch_country_meta() -> pd.DataFrame:
+    """World Bank region and income group for every country (from the bulk CSV metadata)."""
+    import io
+    import zipfile
+
+    res = requests.get("https://api.worldbank.org/v2/en/indicator/SP.POP.TOTL", params={"downloadformat": "csv"}, timeout=180)
+    z = zipfile.ZipFile(io.BytesIO(res.content))
+    meta = pd.read_csv(z.open(next(f for f in z.namelist() if f.startswith("Metadata_Country"))))
+    meta = meta[meta.Region.notna()].rename(columns={"Country Code": "iso3", "Region": "region", "IncomeGroup": "income_group"})
+    print(f"  {len(meta)} countries")
+    return meta[["iso3", "region", "income_group"]]
+
+
 def fetch_country_solar() -> pd.DataFrame:
     """NASA sunlight and wind at every country's center, so any country can be planned offline."""
     import json
@@ -245,6 +258,9 @@ def largest_ring_centroid(geometry: dict) -> tuple[float, float]:
 if __name__ == "__main__":
     import sys
 
+    if "--meta-only" in sys.argv:
+        fetch_country_meta().to_csv(DATA / "country_meta.csv", index=False)
+        sys.exit()
     if "--solar-only" in sys.argv:
         fetch_country_solar().to_csv(DATA / "country_solar.csv", index=False)
         sys.exit()

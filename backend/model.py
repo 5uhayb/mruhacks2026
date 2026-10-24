@@ -29,8 +29,11 @@ ASSUMPTIONS = {
                   "note": "Fuel burned per MWh by the plants solar replaces. Older oil and gas units burn more."},
     "fuel_value": {"value": 9.0, "min": 5.0, "max": 14.0, "unit": "$/MMBtu", "label": "Fuel export value",
                    "note": "Solar's value is the export value of the oil or gas no longer burned at home. $9/MMBtu is roughly oil at $52/bbl."},
-    "kwh_per_home": {"value": 6_000, "min": 3_000, "max": 10_000, "unit": "kWh/yr", "label": "Home electricity use",
-                     "note": "Yearly electricity use of one household."},
+    "residential_share": {"value": 0.35, "min": 0.15, "max": 0.6, "unit": "ratio", "label": "Homes' share of electricity",
+                          "note": "Share of a country's electricity used by homes; the rest goes to business and industry. "
+                                  "One home's use = electricity per person × people per household × this share."},
+    "household_size": {"value": 4.5, "min": 1.5, "max": 10, "unit": "people", "label": "People per household",
+                       "note": "Used to count households (population ÷ this). Default is an approximate regional average; Libya 6."},
     "kwh_per_new_person": {"value": 1_000, "min": 500, "max": 2_000, "unit": "kWh/yr", "label": "Use per new connection",
                            "note": "Electricity needed per person newly connected to the grid."},
     "rail_cost_per_km": {"value": 15_000_000, "min": 8_000_000, "max": 30_000_000, "unit": "$/km", "label": "Rail build cost",
@@ -63,13 +66,46 @@ INDICATOR_META = {
 SOLAR_SOURCE = "NASA POWER ALLSKY_SFC_SW_DWN, annual climatology"
 
 
-def params(overrides: dict | None = None) -> dict:
-    """Assumption values, with user overrides clipped to each assumption's range."""
+def params(overrides: dict | None = None, iso3: str | None = None) -> dict:
+    """Assumption values, with user overrides clipped to each assumption's range.
+    With a country, household size defaults to that country's regional average instead of the generic value."""
+    overrides = dict(overrides or {})
+    if iso3 and "household_size" not in overrides:
+        overrides["household_size"] = default_household_size(iso3)
     out = {}
     for key, spec in ASSUMPTIONS.items():
-        value = (overrides or {}).get(key, spec["value"])
+        value = overrides.get(key, spec["value"])
         out[key] = float(min(max(value, spec["min"]), spec["max"]))
     return out
+
+
+# Approximate average people per household by World Bank region (rounded from UN household-size data).
+# These are planning defaults, editable in the app, not measurements of any one country.
+HOUSEHOLD_SIZE_BY_REGION = {
+    "Middle East & North Africa": 5.0,
+    "Sub-Saharan Africa": 4.8,
+    "South Asia": 4.8,
+    "Latin America & Caribbean": 3.4,
+    "East Asia & Pacific": 3.5,
+    "Europe & Central Asia": 2.5,
+    "North America": 2.5,
+}
+HOUSEHOLD_SIZE_BY_COUNTRY = {"LBY": 6.0}
+
+
+@lru_cache(maxsize=None)
+def default_household_size(iso3: str) -> float:
+    if iso3 in HOUSEHOLD_SIZE_BY_COUNTRY:
+        return HOUSEHOLD_SIZE_BY_COUNTRY[iso3]
+    meta = pd.read_csv(DATA / "country_meta.csv").set_index("iso3")
+    region = meta.region.get(iso3)
+    return HOUSEHOLD_SIZE_BY_REGION.get(region, ASSUMPTIONS["household_size"]["value"])
+
+
+def home_use_kwh(iso3: str, a: dict) -> float:
+    """Yearly electricity of one home: national use per person × household size × homes' share."""
+    kwh_pp = latest(iso3)["kwh_per_person"] or 1500.0
+    return kwh_pp * a["household_size"] * a["residential_share"]
 
 
 @lru_cache
@@ -272,7 +308,7 @@ def deal(iso3: str, site: str, mw: float, a: dict, capex_mult=1.0, fuel_mult=1.0
     national_mwh = latest(iso3)["population"] * (latest(iso3)["kwh_per_person"] or 1500) / 1000
     return {
         "site": site, "lat": float(row.lat), "lon": float(row.lon), "solar_kwh": kwh, "mw": mw,
-        "capex": base["capex"], "annual_mwh": base["mwh"], "homes": base["mwh"] * 1000 / a["kwh_per_home"],
+        "capex": base["capex"], "annual_mwh": base["mwh"], "homes": base["mwh"] * 1000 / home_use_kwh(iso3, a),
         "share_of_national_use": base["mwh"] / national_mwh,
         "value_per_mwh": base["value_per_mwh"], "annual_value": base["mwh"] * base["value_per_mwh"],
         "annual_om": base["om"],
@@ -334,16 +370,24 @@ def main_route(iso3: str, a: dict) -> dict:
 
 
 def context(iso3: str, a: dict | None = None) -> dict:
+    a = a or params(iso3=iso3)
     lat = latest(iso3)
     best = sites_for(iso3).iloc[0]
+    kwh_pp = lat["kwh_per_person"] or 1500.0
+    households = lat["population"] / a["household_size"]
+    home_kwh = home_use_kwh(iso3, a)
     return {
         "population": lat["population"],
         "access0": lat["electricity_access_pct"] if lat["electricity_access_pct"] is not None else 100.0,
         "renew0": lat["renewable_electricity_pct"] or 0.0,
-        "kwh_per_person": lat["kwh_per_person"] or 1500.0,
+        "kwh_per_person": kwh_pp,
+        "households": households,
+        "home_kwh": home_kwh,
+        # Homes' total use is a share of national demand, so homes and clean share share one denominator
+        "household_mwh": households * home_kwh / 1000,
         "base_revenue": revenue_baseline(iso3)["avg"] if revenue_history(iso3) else 0.0,
         "best_site": best.site,
-        "route": main_route(iso3, a or params()),
+        "route": main_route(iso3, a),
     }
 
 
@@ -398,7 +442,10 @@ def simulate(ctx: dict, a: dict, share: float, split, solar_kwh: float,
         "revenue": revenue, "pool": pool, "fund": fund, "fund_returns": returns, "fund_draw": draw,
         "shortfall": shortfall, "solar_spend": solar_spend, "rail_spend": rail_spend,
         "solar_mw": solar_mw, "solar_mwh": mwh, "solar_value": solar_value,
-        "homes": mwh * 1000 / a["kwh_per_home"], "rail_km": rail_km,
+        # Homes powered can never exceed the number of homes; coverage above 1 means power left over for business
+        "homes": np.minimum(mwh * 1000 / ctx["home_kwh"], ctx["households"]),
+        "household_coverage": mwh / ctx["household_mwh"],
+        "rail_km": rail_km,
         "renewable_pct": renew, "access_pct": access,
         "capital_deployed": np.cumsum(solar_spend + rail_spend, axis=1),
         "value_created": np.cumsum(solar_value + returns, axis=1),

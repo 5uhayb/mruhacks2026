@@ -253,9 +253,36 @@ class Simulation(BaseModel):
     months_covered: float
     access_full_year: int | None
     sites: list[dict]
+    homes: dict
+    rail: dict
+    low_resource: dict
+    household_size: float
     shocks: dict
     futures: dict
     meta: Meta
+
+
+def homes_summary(ctx: dict, y: dict) -> dict:
+    """Homes powered never exceeds the homes that exist; beyond that, the surplus goes to business and industry.
+    Uses the same generation figure and the same national-demand denominator as the clean electricity share."""
+    coverage = y["household_coverage"]
+    every = coverage >= 1
+    return {
+        "households": ctx["households"], "home_kwh": ctx["home_kwh"], "coverage": coverage,
+        "homes_powered": min(y["homes"], ctx["households"]),
+        "every_home": bool(every), "left_over_share": float(1 - 1 / coverage) if every else 0.0,
+    }
+
+
+def rail_summary(ctx: dict, a: dict, y: dict, rail_pool: float) -> dict:
+    """Rail result: km funded by year 10, the corridor it goes toward, and years to finish at this budget."""
+    r = ctx["route"]
+    km_per_year = rail_pool / a["rail_cost_per_km"] if rail_pool else 0.0
+    target = r["km"]
+    years = target / km_per_year + a["rail_build_years"] if km_per_year else None
+    return {"from": r["from"], "to": r["to"], "route_km": target, "coords": r["coords"],
+            "funded_km": min(y["rail_km"], target), "km_per_year": km_per_year, "annual_pool": rail_pool,
+            "years_to_complete": years}
 
 
 def year10(result: dict, i: int = 0) -> dict:
@@ -269,7 +296,7 @@ def year10(result: dict, i: int = 0) -> dict:
 def simulate(req: SimulateRequest):
     check(req.iso3)
     start = time.time()
-    a = model.params(req.assumptions)
+    a = model.params(req.assumptions, req.iso3)
     ctx = model.context(req.iso3, a)
     split = model.normalize(req.split)
     kwh = float(model.sites_for(req.iso3).iloc[0].solar_kwh_m2_day)
@@ -284,9 +311,12 @@ def simulate(req: SimulateRequest):
     shocks = {}
     for name, spec in model.SHOCKS.items():
         si = model.shock_inputs(name)
-        after = year10(model.simulate(ctx, a, req.share, split, kwh, si["rev_factor"], si["fuel_mult"], si["capex_mult"]))
+        shocked = model.simulate(ctx, a, req.share, split, kwh, si["rev_factor"], si["fuel_mult"], si["capex_mult"])
+        after = year10(shocked)
         label = spec["label"].replace("Oil", word.capitalize()) if name == "oil_price" else spec["label"]
-        shocks[name] = {**spec, "label": label, "before": before, "after": after, "note": notes.shock(name, before, after, req.iso3)}
+        path = [{"year": r["year"], "access_pct": r["access_pct"], "renewable_pct": r["renewable_pct"]} for r in model.rows(shocked)]
+        shocks[name] = {**spec, "label": label, "before": before, "after": after, "path": path,
+                        "note": notes.shock(name, before, after, req.iso3)}
 
     futures = model.revenue_scenarios(req.iso3, 500)
     mc = model.simulate(ctx, a, req.share, split, kwh, futures)
@@ -303,6 +333,9 @@ def simulate(req: SimulateRequest):
         months_covered=y["fund"] / (ctx["base_revenue"] / 12) if ctx["base_revenue"] else 0,
         access_full_year=next((r["year"] for r in rows if r["access_pct"] >= 99.95), None),
         sites=model.allocate_sites(req.iso3, y["solar_mw"]), shocks=shocks,
+        homes=homes_summary(ctx, y), rail=rail_summary(ctx, a, y, pool * split[1]),
+        low_resource={"is_low": classify(req.iso3)["rents_pct_gdp"] < 5, "rents_pct_gdp": classify(req.iso3)["rents_pct_gdp"]},
+        household_size=a["household_size"],
         futures={
             "runs": len(futures), "history_years": history, "resource": word,
             "access_paths": np.round(mc["access_pct"], 2).tolist(), "clean_paths": np.round(mc["renewable_pct"], 2).tolist(),
@@ -330,7 +363,7 @@ def optimize(req: SimulateRequest):
     while at least 90% of planned spending happens in ≥80% of futures."""
     check(req.iso3)
     start = time.time()
-    a = model.params(req.assumptions)
+    a = model.params(req.assumptions, req.iso3)
     ctx = model.context(req.iso3, a)
     kwh = float(model.sites_for(req.iso3).iloc[0].solar_kwh_m2_day)
     best = ml_optimize.best_plan(ctx, a, req.share, kwh, model.revenue_scenarios(req.iso3, 500))

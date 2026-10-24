@@ -121,3 +121,23 @@ def test_signatures_differ_between_countries():
 def test_main_resource_detection():
     assert model.main_resource("LBY") == "oil"
     assert model.main_resource("CHL") == "minerals"
+
+
+def test_homes_powered_never_exceeds_households():
+    """Above 100% coverage the app must say 'every home' and cap the count at the number of households."""
+    import main
+
+    for iso3 in ["LBY", "NGA", "IRQ", "CAN", "NOR"]:
+        for share in [0.02, 0.1, 0.3]:
+            a = model.params(iso3=iso3)
+            ctx = model.context(iso3, a)
+            r = model.simulate(ctx, a, share, {"solar": 60, "rail": 20, "fund": 20},
+                               float(model.sites_for(iso3).iloc[0].solar_kwh_m2_day), np.ones((1, model.YEARS)))
+            y = model.rows(r)[-1]
+            h = main.homes_summary(ctx, y)
+            assert h["homes_powered"] <= h["households"] + 1e-6, iso3
+            assert h["every_home"] == (y["household_coverage"] >= 1), iso3
+            # Homes and clean share use the same generation and the same national demand
+            clean_added = y["renewable_pct"] - ctx["renew0"]
+            if y["renewable_pct"] < 100:
+                assert clean_added == pytest.approx(y["household_coverage"] * a["residential_share"] * 100, rel=1e-6), iso3

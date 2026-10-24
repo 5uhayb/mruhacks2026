@@ -121,7 +121,16 @@ export type Twins = {
   meta: Meta
 }
 
-export type YearRow = { year: number; fund: number; solar_mw: number; homes: number; rail_km: number; renewable_pct: number; access_pct: number }
+export type YearRow = {
+  year: number
+  fund: number
+  solar_mw: number
+  homes: number
+  household_coverage: number
+  rail_km: number
+  renewable_pct: number
+  access_pct: number
+}
 export type ShockSide = YearRow & { shortfall_total: number; fully_funded: boolean }
 export type Simulation = {
   share: number
@@ -134,7 +143,27 @@ export type Simulation = {
   months_covered: number
   access_full_year: number | null
   sites: { site: string; lat: number; lon: number; solar: number; mw: number }[]
-  shocks: Record<string, { label: string; detail: string; before: ShockSide; after: ShockSide; note: string }>
+  homes: { households: number; home_kwh: number; coverage: number; homes_powered: number; every_home: boolean; left_over_share: number }
+  rail: {
+    from: string | null
+    to: string | null
+    route_km: number
+    coords: [number, number][] | null
+    funded_km: number
+    km_per_year: number
+    annual_pool: number
+    years_to_complete: number | null
+  }
+  low_resource: { is_low: boolean; rents_pct_gdp: number }
+  household_size: number
+  shocks: Record<string, {
+    label: string
+    detail: string
+    before: ShockSide
+    after: ShockSide
+    note: string
+    path: { year: number; access_pct: number; renewable_pct: number }[]
+  }>
   futures: {
     runs: number
     history_years: string
