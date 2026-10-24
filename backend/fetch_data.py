@@ -37,6 +37,7 @@ INDICATORS = {
     "SL.UEM.1524.ZS": "youth_unemployment_pct",
     "EG.ELC.ACCS.ZS": "electricity_access_pct",
     "EG.FEC.RNEW.ZS": "renewable_energy_pct",
+    "EG.USE.ELEC.KH.PC": "kwh_per_person",
     "SE.XPD.TOTL.GD.ZS": "education_spend_pct_gdp",
     "SP.DYN.LE00.IN": "life_expectancy",
     "IS.RRS.TOTL.KM": "rail_km",

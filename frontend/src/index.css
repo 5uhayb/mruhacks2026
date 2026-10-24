@@ -1,1 +1,21 @@
 @import "tailwindcss";
+
+body {
+  background: #020617;
+}
+
+/* Gemini markdown output */
+.md h1, .md h2, .md h3 { font-weight: 700; color: #f1f5f9; margin: 1rem 0 0.4rem; }
+.md h1 { font-size: 1.15rem; }
+.md h2, .md h3 { font-size: 1rem; }
+.md p { margin: 0.4rem 0; }
+.md ul, .md ol { margin: 0.4rem 0 0.4rem 1.25rem; }
+.md ul { list-style: disc; }
+.md ol { list-style: decimal; }
+.md li { margin: 0.2rem 0; }
+.md strong { color: #fde68a; }
+
+/* Dark map tooltips */
+.leaflet-container { background: #0f172a; }
+.leaflet-tooltip { background: #0f172a; color: #e2e8f0; border: 1px solid #334155; }
+.leaflet-tooltip-top::before { border-top-color: #334155; }
