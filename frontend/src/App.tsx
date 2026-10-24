@@ -28,7 +28,7 @@ import Profile from './components/panel/Profile'
 import StressTab from './components/panel/StressTab'
 import TwinsTab from './components/panel/TwinsTab'
 import { buildBrief } from './lib/brief'
-import { Boundary, accessColor, hasWebGL, loadFeatures, type CountryFeature } from './components/ui'
+import { Boundary, NO_DATA, TIERS, hasWebGL, loadFeatures, setFlagCodes, type CountryFeature } from './components/ui'
 
 const DEFAULT_SPLIT: Split = { solar: 35, rail: 20, industry: 15, fund: 30 }
 
@@ -80,6 +80,7 @@ function App() {
     const load = () =>
       Promise.all([getWorld(), loadFeatures(), getAssumptions()])
         .then(([w, f, a]) => {
+          setFlagCodes(w.countries.map((c) => [c.iso3, c.iso2]))
           setWorld(w)
           setFeatures(f)
           setSpecs(a)
@@ -214,24 +215,24 @@ function App() {
       {world && <CommandBar countries={world.countries} targetRule={world.target_rule} onSelect={select} />}
 
       {world && !selected && (
-        <div className="fade pointer-events-none absolute top-20 left-5 z-10 max-w-[460px]">
+        <div className="fade pointer-events-none absolute top-28 left-5 z-10 max-w-[460px]">
           <p className="text-[1.05rem] leading-snug">
             See what a country's own resource income could fund, what each sector returns, and what macro trade-offs it creates.
           </p>
           <p className="text-mute mt-1.5 text-[0.85rem]">
-            For development finance institutions, NGOs and trade organizations. The globe shows electricity access in {shownYear}; lighter means more people connected.
+            For development finance institutions, NGOs and trade organizations.
           </p>
           <p className="text-mute mt-1.5 text-[0.85rem]">Click a country, or press Ctrl K to search.</p>
         </div>
       )}
-      {world && selected && (
-        <div className="fade text-mute pointer-events-none absolute top-[72px] left-5 z-10 flex items-center gap-2 text-[0.72rem]">
-          <span>Electricity access {shownYear}</span>
-          <span className="flex h-2 w-24 overflow-hidden rounded-sm">
-            {[0, 25, 50, 75, 100].map((v) => <span key={v} className="flex-1" style={{ background: accessColor(v) }} />)}
-          </span>
-          <span>0 → 100%</span>
-          <span className="text-gold/80 ml-2">gold tint = projected</span>
+      {world && (
+        <div className="fade text-mute pointer-events-none absolute top-[72px] left-5 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.72rem]">
+          <span className="text-ink">Electricity access, {shownYear > lastMeasured ? `${shownYear} projected` : `latest data to ${shownYear}`}</span>
+          {[...TIERS].reverse().map((t) => (
+            <span key={t.label}><span style={{ color: t.hex }}>●</span> {t.range} · {t.label}</span>
+          ))}
+          <span><span style={{ color: NO_DATA }}>●</span> No data</span>
+          {shownYear > lastMeasured && <span className="text-gold/80">gold tint = projected</span>}
         </div>
       )}
 

@@ -160,14 +160,35 @@ export function hasWebGL(): boolean {
 
 const mix = (a: number[], b: number[], t: number) => a.map((v, i) => Math.round(v + (b[i] - v) * Math.max(0, Math.min(1, t))))
 const rgb = (c: number[], alpha = 1) => `rgba(${c[0]},${c[1]},${c[2]},${alpha})`
-const DARK = [20, 26, 40]
-const LIGHT = [112, 124, 148]
 const GOLD = [242, 169, 59]
 
-/** Measured electricity access: near-black (none) to slate grey (everyone), so gold and cyan stand out */
-export const accessColor = (access: number) => rgb(mix(DARK, LIGHT, Math.pow(access / 100, 1.5)))
-/** Projected years: same scale with a faint gold tint, so the future reads differently */
-export const projectedColor = (access: number) => rgb(mix(mix(DARK, LIGHT, Math.pow(access / 100, 1.5)), GOLD, 0.18))
+/** Electricity access tiers: the globe's only color scale */
+export const TIERS = [
+  { min: 90, label: 'Connected', range: '90%+', color: [91, 107, 133], hex: '#5B6B85' },
+  { min: 60, label: 'Struggling', range: '60–90%', color: [245, 158, 11], hex: '#F59E0B' },
+  { min: 0, label: 'Critical', range: 'Below 60%', color: [239, 68, 68], hex: '#EF4444' },
+] as const
+const tier = (access: number) => TIERS.find((t) => access >= t.min)!.color as unknown as number[]
+
+/** Measured electricity access, by tier */
+export const accessColor = (access: number) => rgb(tier(access))
+/** Projected years: same tiers with a faint gold tint, so the future reads differently */
+export const projectedColor = (access: number) => rgb(mix(tier(access), GOLD, 0.25))
 /** The selected country as the plan reshapes it */
-export const planColor = (access: number, strength: number) => rgb(mix(mix(DARK, LIGHT, Math.pow(access / 100, 1.5)), GOLD, 0.35 + 0.6 * strength))
-export const NO_DATA = 'rgba(16, 21, 31, 1)'
+export const planColor = (access: number, strength: number) => rgb(mix(tier(access), GOLD, 0.35 + 0.4 * strength))
+export const NO_DATA = '#2A303C'
+
+// ---------- Flags (bundled SVGs from flag-icons, so they render offline and on Windows) ----------
+
+const iso2ByIso3 = new Map<string, string>()
+export function setFlagCodes(pairs: [string, string | null][]) {
+  for (const [iso3, iso2] of pairs) if (iso2) iso2ByIso3.set(iso3, iso2.toLowerCase())
+}
+export function flagClass(iso3: string): string | null {
+  const c = iso2ByIso3.get(iso3)
+  return c ? `fi fi-${c}` : null
+}
+export function Flag({ iso3, className = '' }: { iso3: string; className?: string }) {
+  const c = flagClass(iso3)
+  return c ? <span className={`${c} flag ${className}`} aria-hidden /> : null
+}

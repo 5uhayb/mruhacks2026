@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { WorldCountry } from '../api'
 import { formatPct } from '../lib/format'
 import { useLog } from '../log'
+import { Flag } from './ui'
 
 /** Top bar: wordmark and country search. Cmd/Ctrl+K focuses it, Enter flies to the first match.
  *  Revitalization targets (chosen by a data rule) are listed first, then all countries. */
@@ -96,7 +97,7 @@ export function CommandBar({ countries, targetRule, onSelect }: {
                       title={c.target.length ? c.target.join(' · ') : undefined}
                       className={`flex w-full items-baseline justify-between gap-3 px-3 py-1.5 text-left text-[0.86rem] ${i === active ? 'bg-edge' : ''}`}
                     >
-                      <span>{c.name}{c.target.length > 0 && <span className="text-faint ml-2 text-[0.72rem]">{c.target.slice(1).join(' · ')}</span>}</span>
+                      <span className="flex items-baseline gap-2"><Flag iso3={c.iso3} /><span>{c.name}{c.target.length > 0 && <span className="text-faint ml-2 text-[0.72rem]">{c.target.slice(1).join(' · ')}</span>}</span></span>
                       <span className="num text-faint text-[0.72rem]">{c.iso3}</span>
                     </button>
                   )

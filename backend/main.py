@@ -98,8 +98,22 @@ def target_reasons(iso3: str) -> list[str]:
     return [f"resource rents {rents:.0f}% of GDP", *reasons] if reasons else []
 
 
+def iso2_codes() -> dict[str, str]:
+    """ISO3 -> ISO2 for flags, from the Natural Earth outlines (Norway has no code there, so it is added by hand)."""
+    feats = json.loads((Path(__file__).parent / "data" / "countries.geojson").read_text(encoding="utf-8"))["features"]
+    out = {"NOR": "NO"}
+    for f in feats:
+        p = f["properties"]
+        iso3 = p.get("ISO_A3") if p.get("ISO_A3") not in (None, "-99") else p.get("ADM0_A3")
+        iso2 = next((p[k] for k in ["ISO_A2", "WB_A2"] if p.get(k) not in (None, "-99")), None)
+        if iso3 and iso2:
+            out.setdefault(iso3, iso2)
+    return out
+
+
 class WorldCountry(BaseModel):
     iso3: str
+    iso2: str | None
     name: str
     hover: str
     resource: str
@@ -126,6 +140,7 @@ def world():
         return cached.model_copy(update={"meta": Meta(detail=f"{len(cached.countries)} countries · built at startup, served from memory",
                                                       server_ms=(time.time() - start) * 1000)})
     panel, _, _ = model.load()
+    iso2 = iso2_codes()
     out = []
     for iso3, g in panel.groupby("iso3"):
         if not model.has_sunlight(iso3):
@@ -138,7 +153,7 @@ def world():
             for i in range(1, 11):
                 projected[proj["from_year"] + i] = proj["from"] + (proj["to"] - proj["from"]) * i / 10
         out.append(WorldCountry(
-            iso3=iso3, name=str(g.country.iloc[0]), hover=sig[0]["text"] if sig else "",
+            iso3=iso3, iso2=iso2.get(iso3), name=str(g.country.iloc[0]), hover=sig[0]["text"] if sig else "",
             resource=model.resource_word(iso3), target=target_reasons(iso3),
             access={int(y): float(v) for y, v in zip(acc.year, acc.electricity_access_pct)}, projected=projected,
         ))

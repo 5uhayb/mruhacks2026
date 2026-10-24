@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import GlobeGL, { type GlobeMethods } from 'react-globe.gl'
 import { MeshPhongMaterial } from 'three'
 import type { Twins, WorldCountry } from '../api'
-import { NO_DATA, accessColor, centroidOf, isoOf, planColor, projectedColor, useSize, type CountryFeature } from './ui'
+import { NO_DATA, accessColor, centroidOf, flagClass, isoOf, planColor, projectedColor, useSize, type CountryFeature } from './ui'
 
 export type PlanOverlay = {
   sites: { site: string; lat: number; lon: number; mw: number }[]
@@ -155,9 +155,11 @@ export default function Globe({ features, countries, state, onSelect, panelFract
           }}
           polygonsTransitionDuration={350}
           polygonLabel={(f) => {
-            const c = countries.get(isoOf(f as CountryFeature))
+            const iso = isoOf(f as CountryFeature)
+            const c = countries.get(iso)
             const name = c?.name ?? (f as CountryFeature).properties.NAME
-            return `<div class="globe-tip"><div style="font-weight:600">${name}</div>${c?.hover ? `<div style="color:#8a94a8;margin-top:3px">${c.hover}</div>` : ''}</div>`
+            const flag = flagClass(iso)
+            return `<div class="globe-tip"><div style="font-weight:600">${flag ? `<span class="${flag} flag"></span> ` : ''}${name}</div>${c?.hover ? `<div style="color:#8a94a8;margin-top:3px">${c.hover}</div>` : ''}</div>`
           }}
           onPolygonHover={(f) => setHover(f ? isoOf(f as CountryFeature) : null)}
           onPolygonClick={(f) => {

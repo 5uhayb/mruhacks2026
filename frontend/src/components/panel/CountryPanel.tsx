@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { Country } from '../../api'
+import { Flag } from '../ui'
 
 // Story order: where it stands → what happens if nothing changes → the plan → does it survive → how it works
 export const TABS = ['Profile', 'Twins', 'Plan', 'Stress', 'Model'] as const
@@ -19,7 +20,9 @@ export default function CountryPanel({ country, tab, setTab, onClose, onExport, 
       <header className="border-edge border-b px-5 pt-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-[1.5rem] leading-tight font-semibold tracking-tight">{country?.name ?? 'Loading…'}</h2>
+            <h2 className="flex items-center gap-2.5 text-[1.5rem] leading-tight font-semibold tracking-tight">
+              {country && <Flag iso3={country.iso3} />}{country?.name ?? 'Loading…'}
+            </h2>
             {country && (
               <div className="text-mute mt-0.5 cursor-help text-[0.8rem] underline decoration-dotted underline-offset-4" title={country.classification.rules}>
                 {country.classification.label}

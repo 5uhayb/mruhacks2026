@@ -36,6 +36,7 @@ export type Meta = { detail: string; server_ms: number }
 
 export type WorldCountry = {
   iso3: string
+  iso2: string | null
   name: string
   hover: string
   resource: string
