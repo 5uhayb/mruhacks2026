@@ -19,6 +19,7 @@ import {
   type World,
 } from './api'
 import { CommandBar, SystemDrawer, TimeScrubber } from './components/Chrome'
+import Advisor from './components/Advisor'
 import Globe from './components/Globe'
 import CountryPanel, { TABS, type Tab } from './components/panel/CountryPanel'
 import Brief from './components/panel/Brief'
@@ -275,6 +276,7 @@ function App() {
           </Boundary>
         </CountryPanel>
       )}
+      <Advisor iso3={selected} name={country?.name ?? null} share={share} split={split} supply={supply} reform={reform} sim={sim} twins={twins} />
       {briefOpen && country && sim && (
         <Brief markdown={buildBrief({ country, sim, twins, split, specs, overrides })} onClose={() => setBriefOpen(false)} />
       )}

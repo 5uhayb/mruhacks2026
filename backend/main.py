@@ -20,6 +20,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+import advisor
 import differences
 import model
 import notes
@@ -545,6 +546,128 @@ def presets(iso3: str, share: float = 0.10, supply: str = "import"):
     return Presets(**out, share=share, meta=Meta(
         detail=f"{len(out['presets'])} presets · {out['plans_tested']} splits (10–50% each) × 500 futures · cached",
         server_ms=(time.time() - start) * 1000))
+
+
+# ---------- Ask Nahda (AI advisor) ----------
+
+SECTOR_LABELS = {"solar": "Power", "rail": "Transportation", "industry": "Tourism & Economy", "fund": "Savings"}
+
+
+class AdvisorRequest(BaseModel):
+    iso3: str
+    question: str = Field(..., min_length=2, max_length=500)
+    kind: str | None = Field(None, description="peers | split | reform, for the quick-question chips")
+    share: float = Field(0.10, ge=0, le=0.3)
+    split: dict[str, float] = {"solar": 35, "rail": 20, "industry": 15, "fund": 30}
+    supply: str = Field("import", pattern="^(import|local)$")
+    reform: Reform | None = None
+
+
+class AdvisorAnswer(BaseModel):
+    answer: str
+    sources: list[dict]
+    mode: str
+    label: str
+    meta: Meta
+
+
+def usd(v: float) -> str:
+    return f"−${abs(v):,.0f}" if v < 0 else f"${v:,.0f}"
+
+
+def pct(v: float | None, d: int = 1) -> str:
+    return "no data" if v is None else f"{v:.{d}f}%"
+
+
+def advisor_facts(req: AdvisorRequest) -> dict:
+    """Everything the advisor may cite, computed by the app itself."""
+    c = country(req.iso3)
+    t = twins(req.iso3)
+    sim = simulate(SimulateRequest(iso3=req.iso3, share=req.share, split=req.split, supply=req.supply, reform=req.reform))
+    pre = compute_presets(req.iso3, round(req.share, 2), req.supply)
+    return {"c": c, "t": t, "sim": sim, "pre": pre, "end": (sim.start["access_year"] or 2024) + 10}
+
+
+def advisor_data(f: dict) -> str:
+    c, t, sim, pre, end = f["c"], f["t"], f["sim"], f["pre"], f["end"]
+    y = sim.years[-1]
+    split = model.normalize(sim.split_amounts)
+    lines = [
+        f"Country: {c.name} ({c.iso3}); {c.classification['label']}.",
+        f"Electricity access: {pct(sim.start['access'])} ({sim.start['access_year']}). Clean electricity: {pct(sim.start['clean'], 2)} ({sim.start['clean_year']}).",
+        f"{c.resource.capitalize()} rents: {c.classification['rents_pct_gdp']:.1f}% of GDP (5-year average); resource income {notes.money(sim.base_revenue)} a year.",
+        f"Sunlight: {c.sun.get('value', 0):.1f} kWh/m2/day at {c.sun.get('site', 'the best site')} (NASA POWER).",
+        "Closest historical peers (World Bank data):",
+        *[f"- {tw['country']} from {tw['year']} ({tw['similarity']:.0f}% match, {'turnaround' if tw['turnaround'] else 'stagnated'} peer): "
+          f"{tw['changed']} Result over 10 years: access {tw['access_change']:+.1f} pts, income per person {tw['income_change']:+.0f}%." for tw in t.twins],
+        f"Peer playbook: {pre['presets']['playbook']['line']}" if "playbook" in pre["presets"] else "No turnaround peer among the closest matches.",
+        f"Current plan: invest {sim.share:.0%} of {c.resource} income = {notes.money(sim.pool)} a year; split "
+        + ", ".join(f"{SECTOR_LABELS[k]} {v:.0%}" for k, v in zip(model.SECTORS, split)) + ".",
+        f"By {end} (model estimates): access {pct(y['access_pct'])}, clean electricity {pct(y['renewable_pct'])}, "
+        f"{y['solar_mw']:,.0f} MW solar, {sim.rail['funded_km']:,.0f} of {sim.rail['route_km']:,.0f} km transport corridor"
+        f"{' (' + sim.rail['from'] + ' to ' + sim.rail['to'] + ')' if sim.rail['from'] else ''}, savings fund {notes.money(y['fund'])}.",
+        "Sector returns by year 10 (estimates): " + "; ".join(
+            f"{SECTOR_LABELS[k]} {notes.money(e['annual_return'])}/yr, payback {e['payback']:.1f} yrs" if e["payback"]
+            else f"{SECTOR_LABELS[k]} {notes.money(e['annual_return'])}/yr" for k, e in sim.sectors.items()) + ".",
+        f"Solar sourcing: {sim.supply['label']}.",
+    ]
+    if sim.reform:
+        r = sim.reform
+        i = min(r["phase_years"], 10) - 1
+        lines.append(f"Fuel price reform (estimates): pump price ${r['price_now']:.2f}/L (placeholder estimate) to ${r['target_price']:.2f}/L over "
+                     f"{r['phase_years']} years, {r['rebate_share']:.0%} of savings returned as cash rebates; {notes.money(r['freed'][i])}/yr freed; "
+                     f"inflation +{r['peak_cpi'] * 100:.1f}% a year during phase-in; net cost per household {usd(r['net_per_home_month'][i])}/month.")
+    else:
+        lines.append("Fuel price reform: not modelled in the current plan.")
+    return "\n".join(lines)
+
+
+def advisor_offline(req: AdvisorRequest, f: dict) -> str:
+    """Instant answer from app data only, for when no AI service is reachable."""
+    c, t, sim, pre, end = f["c"], f["t"], f["sim"], f["pre"], f["end"]
+    kind = req.kind or ("reform" if "subsid" in req.question.lower() or "fuel" in req.question.lower()
+                        else "peers" if "peer" in req.question.lower() or "worked" in req.question.lower() else "split")
+    if kind == "peers":
+        parts = [f"{tw['country']} ({tw['year']}, {'turnaround' if tw['turnaround'] else 'stagnated'}): {tw['changed']} "
+                 f"Access {tw['access_change']:+.0f} pts, income {tw['income_change']:+.0f}%." for tw in t.twins]
+        pb = pre["presets"].get("playbook")
+        return " ".join(parts) + (f" {pb['line']}" if pb else " None of the closest peers is a turnaround peer.")
+    if kind == "reform":
+        rf = req.reform or Reform()
+        a = model.params(iso3=req.iso3)
+        ctx = model.context(req.iso3, a)
+        none = np.zeros(model.YEARS)
+        base = model.fuel_reform(req.iso3, ctx, a, rf.target_price, rf.phase_years, rf.rebate_share, none)
+        full = model.fuel_reform(req.iso3, ctx, a, rf.target_price, rf.phase_years, 1.0, none)
+        slow = model.fuel_reform(req.iso3, ctx, a, rf.target_price, 10, rf.rebate_share, none)
+        i = min(rf.phase_years, 10) - 1
+        return (f"Raising fuel from ${a['fuel_price_now']:.2f}/L (estimate) to ${rf.target_price:.2f}/L over {rf.phase_years} years frees "
+                f"{notes.money(base['freed'][i])}/yr and adds about +{base['peak_cpi'] * 100:.1f}% inflation a year. With {rf.rebate_share:.0%} "
+                f"returned as cash rebates, families pay a net {usd(base['net_per_home_month'][i])}/month; returning all of it makes that "
+                f"{usd(full['net_per_home_month'][i])}/month, though inflation is unchanged. A 10-year phase-in lowers inflation to "
+                f"+{slow['peak_cpi'] * 100:.1f}% a year. Set the real pump price before relying on these numbers.")
+    p = pre["presets"]
+    split = model.normalize(sim.split_amounts)
+    now = ", ".join(f"{SECTOR_LABELS[k]} {v:.0%}" for k, v in zip(model.SECTORS[:3], split[:3]))
+    y = sim.years[-1]
+    return (f"Now: {now}, Savings {split[3]:.0%}, reaching {pct(y['access_pct'], 0)} access and {sim.rail['funded_km']:,.0f} km of corridor by {end}. "
+            f"Power preset: {p['power']['line']} Mobility: {p['mobility']['line']} Growth: {p['growth']['line']}"
+            + (f" {p['playbook']['line']}" if "playbook" in p else ""))
+
+
+@app.post("/api/advisor", response_model=AdvisorAnswer)
+def ask_advisor(req: AdvisorRequest):
+    """Short answer for the selected country. AI keys stay on the server; falls back to app data offline."""
+    check(req.iso3)
+    start = time.time()
+    f = advisor_facts(req)
+    out = advisor.ask(req.question, advisor_data(f))
+    if out["answer"] is None:
+        out.update(answer=advisor_offline(req, f), label=advisor.OFFLINE)
+    detail = {"web": "Gemini + Google Search", "model": "Gemini (search quota unavailable)", "offline": "offline template"}[out["mode"]]
+    return AdvisorAnswer(answer=out["answer"], sources=out["sources"], mode=out["mode"], label=out["label"],
+                         meta=Meta(detail=f"advisor · {detail}" + (f" · {out['errors'][0]}" if out["errors"] else ""),
+                                   server_ms=(time.time() - start) * 1000))
 
 
 @app.get("/api/assumptions")

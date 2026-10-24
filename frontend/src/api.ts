@@ -258,3 +258,8 @@ export const simulate = async (input: SimulateInput) => (await api.post<Simulati
 export const getPresets = async (iso3: string, share: number, supply: Supply) =>
   (await api.get<Presets>(`/presets/${iso3}`, { params: { share, supply } })).data
 export const getAssumptions = async () => (await api.get<Record<string, AssumptionSpec>>('/assumptions')).data
+
+export type AdvisorKind = 'peers' | 'split' | 'reform'
+export type AdvisorAnswer = { answer: string; sources: { title: string; url: string }[]; mode: 'web' | 'model' | 'offline'; label: string; meta: Meta }
+export const askAdvisor = async (input: Omit<SimulateInput, 'assumptions'> & { question: string; kind: AdvisorKind | null }) =>
+  (await api.post<AdvisorAnswer>('/advisor', input, { timeout: 60000 })).data
