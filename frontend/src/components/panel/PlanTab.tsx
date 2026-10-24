@@ -103,9 +103,9 @@ export default function PlanTab({ country, sim, share, setShare, split, setSplit
           <div className="grid grid-cols-2 gap-x-6 gap-y-5">
             <Stat accent="gold" label="Solar built" value={<CountUp value={y.solar_mw} format={(v) => `${formatNumber(v)} MW`} />} sub={`As much power as ${formatNumber(y.homes)} homes use`} />
             <Stat accent="gold" label="Has electricity" value={<CountUp value={y.access_pct} format={(v) => formatPct(v)} />}
-              sub={sim.access_full_year && sim.start.access < 99.95 ? `Everyone by year ${sim.access_full_year}, from ${formatPct(sim.start.access)}` : `From ${formatPct(sim.start.access)} today`} />
+              sub={sim.access_full_year && sim.start.access < 99.95 ? `Everyone by year ${sim.access_full_year}, from ${formatPct(sim.start.access)} (latest available, ${sim.start.access_year})` : `From ${formatPct(sim.start.access)} (latest available, ${sim.start.access_year})`} />
             <Stat accent="gold" label="Savings fund" value={<CountUp value={y.fund} format={(v) => formatMoney(v)} />} sub={`Covers about ${formatNumber(sim.months_covered)} months of ${country.resource} income`} />
-            <Stat accent="gold" label="Clean electricity" value={<CountUp value={y.renewable_pct} format={(v) => formatPct(v)} />} sub={`From ${formatPct(sim.start.clean)} today · ${formatNumber(y.rail_km)} km rail funded`} />
+            <Stat accent="gold" label="Clean electricity" value={<CountUp value={y.renewable_pct} format={(v) => formatPct(v)} />} sub={`From ${formatPct(sim.start.clean)} (latest available, ${sim.start.clean_year})`} />
           </div>
           <div className="mt-5 h-[150px]">
             <div className="text-mute mb-1 flex gap-4 text-[0.75rem]">

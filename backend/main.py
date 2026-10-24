@@ -132,10 +132,41 @@ class Factor(BaseModel):
     effect: float
 
 
+def classify(iso3: str) -> dict:
+    """Readable, rule-based label from the data, e.g. 'High oil dependency · Electricity gap · LBY'."""
+    word = model.resource_word(iso3)
+    col = model.RESOURCES[model.main_resource(iso3)][0]
+    rents = model.country_rows(iso3)[col].dropna().tail(5).mean()
+    rents = 0.0 if pd.isna(rents) else float(rents)
+    access = model.latest(iso3)["electricity_access_pct"]
+    if rents >= 20:
+        dep = f"High {word} dependency"
+    elif rents >= 10:
+        dep = f"Significant {word} income"
+    elif rents >= 5:
+        dep = f"Some {word} income"
+    else:
+        dep = "Diversified economy"
+    if access is None:
+        acc = "Access unknown"
+    elif access < 95:
+        acc = "Electricity gap"
+    elif access < 99.5:
+        acc = "Near-universal access"
+    else:
+        acc = "Universal access"
+    rules = (f"{word.capitalize()} rents (5-year average): {rents:.1f}% of GDP. "
+             "High dependency ≥ 20% · significant ≥ 10% · some ≥ 5% · otherwise diversified. "
+             f"Electricity access: {access:.1f}%. Gap < 95% · near-universal < 99.5% · otherwise universal."
+             if access is not None else f"{word.capitalize()} rents: {rents:.1f}% of GDP.")
+    return {"label": f"{dep} · {acc} · {iso3}", "rules": rules, "rents_pct_gdp": rents}
+
+
 class Country(BaseModel):
     iso3: str
     name: str
     resource: str
+    classification: dict
     facts: list[Fact]
     stats: dict
     revenue: dict
@@ -169,12 +200,16 @@ def country(iso3: str):
         }
     facts = signature.signature(iso3)
     return Country(
-        iso3=iso3, name=lat["country"], resource=model.resource_word(iso3),
+        iso3=iso3, name=lat["country"], resource=model.resource_word(iso3), classification=classify(iso3),
         facts=[Fact(**{k: f[k] for k in Fact.model_fields}) for f in facts],
         stats={k: lat.get(k) for k in ["population", "electricity_access_pct", "electricity_access_pct_year",
                                        "renewable_electricity_pct", "renewable_electricity_pct_year", "gdp_per_capita_usd"]},
-        revenue={} if rb is None else {"avg": rb["avg"], "years": rb["years"], "history": rb["history"],
-                                      "low": rb["worst"], "high": rb["best"], "per_person": rb["avg"] / lat["population"]},
+        revenue={} if rb is None else {
+            "avg": rb["avg"], "years": rb["years"], "history": rb["history"],
+            "low": rb["worst"], "high": rb["best"], "per_person": rb["avg"] / lat["population"],
+            # The range covers the last 10 years that have data, which may end well before today
+            "range_years": [rb["history"][-min(10, len(rb["history"]))]["year"], rb["history"][-1]["year"]],
+        },
         sun=sun, outlook=outlook, model_card=ML["metrics"],
         meta=Meta(detail=f"{len(facts)} signature facts · LightGBM + SHAP on {len(impact.FEATURES)} features",
                   server_ms=(time.time() - start) * 1000),
@@ -268,7 +303,10 @@ def simulate(req: SimulateRequest):
     return Simulation(
         share=req.share, base_revenue=ctx["base_revenue"], pool=pool, per_person=pool / ctx["population"],
         split_amounts=dict(zip(model.SECTORS, (pool * split).tolist())),
-        start={"access": ctx["access0"], "clean": ctx["renew0"]}, years=rows,
+        start={"access": ctx["access0"], "clean": ctx["renew0"],
+               "access_year": model.latest(req.iso3)["electricity_access_pct_year"],
+               "clean_year": model.latest(req.iso3)["renewable_electricity_pct_year"]},
+        years=rows,
         months_covered=y["fund"] / (ctx["base_revenue"] / 12) if ctx["base_revenue"] else 0,
         access_full_year=next((r["year"] for r in rows if r["access_pct"] >= 99.95), None),
         sites=model.allocate_sites(req.iso3, y["solar_mw"]), shocks=shocks,

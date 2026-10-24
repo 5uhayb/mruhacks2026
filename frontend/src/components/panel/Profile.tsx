@@ -33,22 +33,29 @@ export default function Profile({ country }: { country: Country }) {
 
       <Section title="Today">
         <div className="grid grid-cols-2 gap-x-6 gap-y-5">
-          <Stat label={`Has electricity · ${s.electricity_access_pct_year ?? ''}`} value={formatPct(s.electricity_access_pct)} />
-          <Stat label={`Clean electricity · ${s.renewable_electricity_pct_year ?? ''}`} value={formatPct(s.renewable_electricity_pct)} />
+          <Stat label="Has electricity" value={formatPct(s.electricity_access_pct)}
+            sub={`Latest available: ${s.electricity_access_pct_year ?? 'n/a'}`} />
+          <Stat label="Clean electricity" value={formatPct(s.renewable_electricity_pct)}
+            sub={`Latest available: ${s.renewable_electricity_pct_year ?? 'n/a'}`} />
           <Stat
-            label={`${country.resource} income · ${r.years ? `${r.years[0]}–${r.years[r.years.length - 1]} avg` : ''}`}
+            label={`${country.resource} income per year`}
             value={formatMoney(r.avg)}
-            sub={r.per_person != null ? `$${formatNumber(r.per_person)} per person a year` : 'No resource income data'}
+            sub={r.years
+              ? `5-year average (${r.years[0]}–${r.years[r.years.length - 1]}) · ${formatMoney(r.per_person)} per person`
+              : 'No resource income data'}
           />
           <Stat
             label="Sunlight"
             value={<>{formatNumber(country.sun.value, 1)}<span className="text-mute ml-1 text-[0.8rem]">kWh/m²/day</span></>}
-            sub={country.sun.value && country.sun.oslo ? `${(country.sun.value / country.sun.oslo).toFixed(1)}× Oslo · ${country.sun.site} (NASA)` : undefined}
+            sub={country.sun.value && country.sun.oslo
+              ? `${formatNumber(country.sun.value / country.sun.oslo, 1)}× Oslo · ${country.sun.site} · NASA long-term average`
+              : undefined}
           />
         </div>
-        {r.low && r.high && (
+        {r.low && r.high && r.range_years && (
           <p className="text-mute mt-4 text-[0.82rem]">
-            {country.resource[0].toUpperCase() + country.resource.slice(1)} income ranged from {formatMoney(r.low.revenue)} ({r.low.year}) to {formatMoney(r.high.revenue)} ({r.high.year}) over the last 10 years of data.
+            Range, {r.range_years[0]}–{r.range_years[1]}: {formatMoney(r.low.revenue)} ({r.low.year}) to {formatMoney(r.high.revenue)} ({r.high.year}).
+            {r.range_years[1] < (s.electricity_access_pct_year ?? 0) && ` Resource income data ends in ${r.range_years[1]}.`}
           </p>
         )}
       </Section>

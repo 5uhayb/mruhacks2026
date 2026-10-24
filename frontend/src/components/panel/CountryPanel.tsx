@@ -17,7 +17,11 @@ export default function CountryPanel({ country, tab, setTab, onClose, children }
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-[1.5rem] leading-tight font-semibold tracking-tight">{country?.name ?? 'Loading…'}</h2>
-            {country && <div className="text-mute mt-0.5 text-[0.8rem]">Main resource: {country.resource} · {country.iso3}</div>}
+            {country && (
+              <div className="text-mute mt-0.5 cursor-help text-[0.8rem] underline decoration-dotted underline-offset-4" title={country.classification.rules}>
+                {country.classification.label}
+              </div>
+            )}
           </div>
           <button onClick={onClose} className="text-mute hover:text-ink text-[0.8rem]" aria-label="Close panel">Close <kbd className="num border-edge ml-1 rounded border px-1 text-[0.65rem]">Esc</kbd></button>
         </div>

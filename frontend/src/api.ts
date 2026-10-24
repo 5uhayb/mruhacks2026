@@ -64,6 +64,7 @@ export type Country = {
   iso3: string
   name: string
   resource: string
+  classification: { label: string; rules: string; rents_pct_gdp: number }
   facts: Fact[]
   stats: {
     population: number
@@ -73,7 +74,14 @@ export type Country = {
     renewable_electricity_pct_year: number | null
     gdp_per_capita_usd: number | null
   }
-  revenue: { avg?: number; years?: number[]; per_person?: number; low?: { year: number; revenue: number }; high?: { year: number; revenue: number } }
+  revenue: {
+    avg?: number
+    years?: number[]
+    per_person?: number
+    low?: { year: number; revenue: number }
+    high?: { year: number; revenue: number }
+    range_years?: [number, number]
+  }
   sun: { site?: string; value?: number; oslo?: number }
   outlook: { year: number; access_now: number; change: number; access_in_10: number; factors: Factor[] } | null
   model_card: ModelCard
@@ -99,7 +107,7 @@ export type Simulation = {
   pool: number
   per_person: number
   split_amounts: Split
-  start: { access: number; clean: number }
+  start: { access: number; clean: number; access_year: number | null; clean_year: number | null }
   years: YearRow[]
   months_covered: number
   access_full_year: number | null
