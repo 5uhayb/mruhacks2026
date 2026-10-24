@@ -1,36 +1,30 @@
 import { useEffect, useRef, useState } from 'react'
-import { askAdvisor, type AdvisorAnswer, type AdvisorKind, type ReformInput, type Simulation, type Split, type Supply, type Twins } from '../api'
-import { formatDelta, formatMoney, formatPct } from '../lib/format'
+import { askAdvisor, type AdvisorAnswer, type AdvisorKind, type Peers, type Simulation, type Split } from '../api'
+import { formatNumber, formatPct } from '../lib/format'
 
 type Entry = { question: string; answer: AdvisorAnswer | null }
 
 /** Last resort if the backend itself cannot be reached: a template from what this page already has */
-function localAnswer(kind: AdvisorKind | null, name: string, sim: Simulation | null, twins: Twins | null): AdvisorAnswer {
+function localAnswer(kind: AdvisorKind | null, name: string, sim: Simulation | null, peers: Peers | null): AdvisorAnswer {
   let text = `Nahda data for ${name} is still loading.`
-  if (kind === 'peers' && twins) {
-    text = twins.twins.map((t) => `${t.country} (${t.year}, ${t.turnaround ? 'turnaround' : 'stagnated'}): ${t.changed} Access ${formatDelta(t.access_change, ' pts')}, income ${formatDelta(t.income_change)}.`).join(' ')
-  } else if (kind === 'reform' && sim?.reform) {
-    const r = sim.reform
-    const i = Math.min(r.phase_years, 10) - 1
-    text = `${formatMoney(r.freed[i])}/yr freed, +${(r.peak_cpi * 100).toFixed(1)}% inflation a year during phase-in, ${formatMoney(r.net_per_home_month[i])}/month net per household after ${formatPct(r.rebate_share * 100, 0)} rebates. Higher rebates lower the family cost; a longer phase-in lowers inflation.`
-  } else if (kind === 'reform') {
-    text = 'Fuel price reform is off in this plan. Turn it on under Plan → Fuel price reform to see freed subsidy, inflation and the cost to families.'
+  if (kind === 'peer' && peers) {
+    const p = peers.peers[0]
+    text = p ? `${p.country} from ${p.year}: ${p.changed} ${p.result}.` : `No peer meets the selection rule for ${name}.`
+  } else if (kind === 'siting' && sim) {
+    text = `Strongest sunlight: ${sim.sites.solar.site} (${formatNumber(sim.sites.solar.value, 1)} kWh/m²/day). Strongest 50 m wind: ${sim.sites.wind.site} (${formatNumber(sim.sites.wind.value, 1)} m/s). Actual sites need local studies.`
   } else if (sim) {
-    const y = sim.years[sim.years.length - 1]
-    text = `By year 10: access ${formatPct(y.access_pct)}, ${Math.round(sim.rail.funded_km)} km of corridor, savings ${formatMoney(y.fund)}.`
+    text = `${sim.recommendation.banner} By year 10: access ${formatPct(sim.cards.access.value)}, clean share ${formatPct(sim.cards.access.clean)}.`
   }
   return { answer: text, sources: [], mode: 'offline', label: 'Offline answer from Nahda data', meta: { detail: 'local', server_ms: 0 } }
 }
 
-export default function Advisor({ iso3, name, share, split, supply, reform, sim, twins }: {
+export default function Advisor({ iso3, name, split, overrides, sim, peers }: {
   iso3: string | null
   name: string | null
-  share: number
-  split: Split
-  supply: Supply
-  reform: ReformInput | null
+  split: Split | null
+  overrides: Record<string, number>
   sim: Simulation | null
-  twins: Twins | null
+  peers: Peers | null
 }) {
   const [open, setOpen] = useState(false)
   const [entries, setEntries] = useState<Entry[]>([])
@@ -47,15 +41,15 @@ export default function Advisor({ iso3, name, share, split, supply, reform, sim,
     setEntries((e) => [...e, { question, answer: null }])
     let answer: AdvisorAnswer
     try {
-      answer = await askAdvisor({ iso3, question, kind, share, split, supply, reform })
+      answer = await askAdvisor({ iso3, question, kind, split, assumptions: overrides })
     } catch {
-      answer = localAnswer(kind, name, sim, twins)
+      answer = localAnswer(kind, name, sim, peers)
     }
     setEntries((e) => e.map((x, i) => (i === e.length - 1 ? { ...x, answer } : x)))
   }
 
   const chips: [string, AdvisorKind][] = name
-    ? [[`What worked for ${name}'s closest peers?`, 'peers'], ['How should we split Power, Transport and Tourism?', 'split'], ['How can fuel subsidy reform avoid hurting families?', 'reform']]
+    ? [[`Why solar vs wind for ${name}?`, 'mix'], [`How did ${peers?.peers[0]?.country ?? 'its top peer'} expand access?`, 'peer'], [`Where could ${name} place solar and wind?`, 'siting']]
     : []
 
   return (

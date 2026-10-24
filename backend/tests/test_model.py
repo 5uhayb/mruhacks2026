@@ -16,20 +16,13 @@ def twin_index():
 # ---------- Solar ----------
 
 def test_solar_output_matches_formula():
-    """Annual MWh = MW × sunlight (kWh/m²/day) × 365 × performance ratio."""
-    a = model.params()
-    f = model.solar_flows(a, solar_kwh=6.0, mw=500)
-    assert f["mwh"] == pytest.approx(500 * 6.0 * 365 * 0.8)
-    assert f["capex"] == pytest.approx(500 * 800_000)
-    assert len(f["flows"]) == 1 + int(a["project_life"])
+    """Yearly MWh = MW × sunlight (kWh/m²/day) × 365 × performance ratio."""
+    import electric
 
-
-def test_libya_solar_payback_is_plausible():
-    """Base-case payback at every Libyan site should land between 5 and 9 years."""
-    a = model.params()
-    for site in model.sites_for("LBY").site:
-        payback = model.deal("LBY", site, 500, a)["payback"]
-        assert 5 <= payback <= 9, site
+    a = electric.params()
+    ctx = {"population": 1e6, "access0": 50.0, "renew0": 0.0, "demand_mwh": 1e6, "solar": 6.0, "wind": 0.0}
+    r = electric.simulate(ctx, a, 1e9, {"solar": 100, "wind": 0, "grid": 0}, np.ones((1, electric.YEARS)))
+    assert r["solar_mwh"][0, -1] == pytest.approx(r["solar_mw"][0, -1] * 6.0 * 365 * a["performance_ratio"])
 
 
 # ---------- Finance ----------
@@ -48,9 +41,11 @@ def test_payback_interpolates_within_a_year():
 
 
 def test_assumption_overrides_are_clipped_to_range():
-    p = model.params({"solar_capex_per_mw": 1, "fuel_value": 999})
-    assert p["solar_capex_per_mw"] == model.ASSUMPTIONS["solar_capex_per_mw"]["min"]
-    assert p["fuel_value"] == model.ASSUMPTIONS["fuel_value"]["max"]
+    import electric
+
+    p = electric.params({"solar_capex_per_mw": 1, "wind_threshold": 999})
+    assert p["solar_capex_per_mw"] == electric.ASSUMPTIONS["solar_capex_per_mw"]["min"]
+    assert p["wind_threshold"] == electric.ASSUMPTIONS["wind_threshold"]["max"]
 
 
 # ---------- Twins ----------

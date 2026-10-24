@@ -2,20 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   getAssumptions,
   getCountry,
-  getTwins,
+  getPeers,
   getWorld,
-  getPresets,
   simulate,
   SECTORS,
   type AssumptionSpec,
   type Country,
-  type Presets,
-  type Preset,
-  type ReformInput,
+  type Peers,
   type Simulation,
   type Split,
-  type Supply,
-  type Twins,
   type World,
 } from './api'
 import { CommandBar, SystemDrawer, TimeScrubber } from './components/Chrome'
@@ -24,31 +19,27 @@ import Globe from './components/Globe'
 import CountryPanel, { TABS, type Tab } from './components/panel/CountryPanel'
 import Brief from './components/panel/Brief'
 import ModelTab from './components/panel/ModelTab'
+import PeersTab from './components/panel/PeersTab'
 import PlanTab from './components/panel/PlanTab'
 import Profile from './components/panel/Profile'
 import StressTab from './components/panel/StressTab'
-import TwinsTab from './components/panel/TwinsTab'
 import { buildBrief } from './lib/brief'
 import { Boundary, NO_DATA, TIERS, hasWebGL, loadFeatures, setFlagCodes, type CountryFeature } from './components/ui'
 
-const DEFAULT_SPLIT: Split = { solar: 35, rail: 20, industry: 15, fund: 30 }
-
-// Cache per country so revisiting (and the preloaded Libya) is instant
+// Cache per country so revisiting is instant
 const countryCache = new Map<string, Promise<Country>>()
-const twinsCache = new Map<string, Promise<Twins>>()
+const peersCache = new Map<string, Promise<Peers>>()
 const cachedCountry = (iso: string) => countryCache.get(iso) ?? countryCache.set(iso, getCountry(iso)).get(iso)!
-const cachedTwins = (iso: string) => twinsCache.get(iso) ?? twinsCache.set(iso, getTwins(iso)).get(iso)!
+const cachedPeers = (iso: string) => peersCache.get(iso) ?? peersCache.set(iso, getPeers(iso)).get(iso)!
 
-/** Initial state from the URL, e.g. /?c=LBY&invest=10&solar=35&rail=20&industry=15&fund=30&tab=Plan */
+/** Initial state from the URL, e.g. /?c=NGA&solar=25&wind=5&grid=70&tab=Plan (no split = the recommended mix) */
 function fromUrl() {
   const q = new URLSearchParams(window.location.search)
-  const n = (k: string, d: number) => (q.get(k) != null && !Number.isNaN(Number(q.get(k))) ? Number(q.get(k)) : d)
   const tab = q.get('tab') as Tab | null
+  const has = SECTORS.every((k) => q.get(k) != null && !Number.isNaN(Number(q.get(k))))
   return {
     selected: q.get('c'),
-    share: Math.min(30, Math.max(0, n('invest', 10))) / 100,
-    split: Object.fromEntries(SECTORS.map((k) => [k, n(k, DEFAULT_SPLIT[k])])) as Split,
-    supply: (q.get('supply') === 'local' ? 'local' : 'import') as Supply,
+    split: has ? (Object.fromEntries(SECTORS.map((k) => [k, Number(q.get(k))])) as Split) : null,
     tab: tab && TABS.includes(tab) ? tab : 'Profile',
   }
 }
@@ -60,22 +51,19 @@ function App() {
   const [specs, setSpecs] = useState<Record<string, AssumptionSpec>>({})
   const [selected, setSelected] = useState<string | null>(initial.selected)
   const [tab, setTab] = useState<Tab>(initial.tab)
-  const [share, setShare] = useState(initial.share)
-  const [split, setSplit] = useState<Split>(initial.split)
+  // null = follow the recommended mix for the selected country
+  const [split, setSplit] = useState<Split | null>(initial.split)
+  const [playbookLine, setPlaybookLine] = useState<string | null>(null)
   const [overrides, setOverrides] = useState<Record<string, number>>({})
-  const [supply, setSupply] = useState<Supply>(initial.supply)
-  const [reform, setReform] = useState<ReformInput | null>(null)
   const [year, setYear] = useState<number | null>(null)
   const [systemOpen, setSystemOpen] = useState(false)
   const [briefOpen, setBriefOpen] = useState(false)
   const [country, setCountry] = useState<Country | null>(null)
-  const [twins, setTwins] = useState<Twins | null>(null)
+  const [peers, setPeers] = useState<Peers | null>(null)
   const [sim, setSim] = useState<Simulation | null>(null)
-  const [presets, setPresets] = useState<Presets | null>(null)
-  const [activePreset, setActivePreset] = useState<Preset | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Load the world, outlines and assumptions; preload Libya so the first click is instant
+  // Load the world, outlines and assumptions; preload the first quick pick so the first click is instant
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>
     const load = () =>
@@ -86,8 +74,11 @@ function App() {
           setFeatures(f)
           setSpecs(a)
           setError(null)
-          cachedCountry('LBY')
-          cachedTwins('LBY')
+          const first = w.quick_picks[0]?.iso3
+          if (first) {
+            cachedCountry(first)
+            cachedPeers(first)
+          }
         })
         .catch(() => {
           setError('Waiting for the backend (cd backend; python -m uvicorn main:app --port 8000)…')
@@ -104,41 +95,37 @@ function App() {
   )
   const shownYear = year ?? lastMeasured
 
-  // Selected country: profile and twins (cached)
+  // Selected country: profile and peers (cached)
   useEffect(() => {
     setCountry(null)
-    setTwins(null)
+    setPeers(null)
     setSim(null)
-    setPresets(null)
-    setActivePreset(null)
     if (!selected || !world) return
     let live = true
     cachedCountry(selected).then((c) => live && setCountry(c)).catch(() => {})
-    cachedTwins(selected).then((t) => live && setTwins(t)).catch(() => live && setTwins(null))
+    cachedPeers(selected).then((p) => live && setPeers(p)).catch(() => live && setPeers(null))
     return () => {
       live = false
     }
   }, [selected, world])
 
-  // Re-simulate as sliders move (debounced)
+  // Re-simulate as the mix or assumptions change (debounced)
   useEffect(() => {
     if (!selected || !world) return
-    const t = setTimeout(() => simulate({ iso3: selected, share, split, assumptions: overrides, supply, reform }).then(setSim).catch(() => {}), 120)
+    const t = setTimeout(() => simulate({ iso3: selected, split, assumptions: overrides }).then(setSim).catch(() => {}), 120)
     return () => clearTimeout(t)
-  }, [selected, share, split, overrides, supply, reform, world])
+  }, [selected, split, overrides, world])
 
   // Keep the URL shareable
   useEffect(() => {
     const q = new URLSearchParams()
     if (selected) {
       q.set('c', selected)
-      q.set('invest', String(Math.round(share * 100)))
-      SECTORS.forEach((k) => q.set(k, String(Math.round(split[k]))))
-      if (supply === 'local') q.set('supply', 'local')
+      if (split) SECTORS.forEach((k) => q.set(k, String(Math.round(split[k]))))
       q.set('tab', tab)
     }
     window.history.replaceState(null, '', q.toString() ? `?${q}` : window.location.pathname)
-  }, [selected, share, split, supply, tab])
+  }, [selected, split, tab])
 
   // ` toggles the System drawer; Esc closes the panel (both ignored while typing)
   useEffect(() => {
@@ -151,35 +138,26 @@ function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // Presets are computed and cached on the backend; fetch them in the background so clicking one is instant
-  useEffect(() => {
-    if (!selected || !world) return
-    let live = true
-    const t = setTimeout(() => getPresets(selected, share, supply).then((p) => live && setPresets(p)).catch(() => {}), 150)
-    return () => {
-      live = false
-      clearTimeout(t)
-    }
-  }, [selected, share, supply, world])
+  // Dragging the split: a manual mix, no longer the recommendation or a playbook
+  const editSplit = useCallback((s: Split) => {
+    setSplit(s)
+    setPlaybookLine(null)
+  }, [])
 
-  // Apply a preset instantly: the split comes from the cached presets, no network call
-  const applyPreset = useCallback((preset: Preset) => {
-    const target = presets?.presets[preset]?.split
-    if (!target) return
-    setActivePreset(preset)
-    setSplit({ ...target })
-  }, [presets])
-
-  // "Use [Peer]'s playbook →" on the Twins tab
+  // "Use [Peer]'s playbook →" on the Peers tab
   const applyPlaybook = useCallback(() => {
+    if (!peers?.playbook) return
+    setSplit({ ...peers.playbook.split })
+    setPlaybookLine(peers.playbook.line)
     setTab('Plan')
-    applyPreset('playbook')
-  }, [applyPreset])
+  }, [peers])
 
-  // Picking a new country always starts on its Profile (a shared URL can still open any tab directly)
+  // Picking a new country starts on its Profile with its own recommended mix
   const select = useCallback((iso: string | null) => {
     setSelected(iso)
     setTab('Profile')
+    setSplit(null)
+    setPlaybookLine(null)
   }, [])
 
   // The Plan tab shows its effect on the globe: jump the timeline to the projected end year
@@ -198,7 +176,12 @@ function App() {
     ? Object.fromEntries(sim.years.map((r) => [sim.start.access_year! + r.year, r.access_pct]))
     : null
   const overlay = sim && tab === 'Plan'
-    ? { sites: sim.sites, rail: { coords: sim.rail.coords, fraction: sim.rail.route_km ? sim.rail.funded_km / sim.rail.route_km : 0 } }
+    ? {
+        markers: [
+          { kind: 'solar' as const, lat: sim.sites.solar.lat, lon: sim.sites.solar.lon, text: `Best sun · ${sim.sites.solar.site} · ${sim.sites.solar.value.toFixed(1)} kWh/m²/day` },
+          { kind: 'wind' as const, lat: sim.sites.wind.lat, lon: sim.sites.wind.lon, text: `Best wind · ${sim.sites.wind.site} · ${sim.sites.wind.value.toFixed(1)} m/s` },
+        ],
+      }
     : null
 
   return (
@@ -207,34 +190,29 @@ function App() {
         <Globe
           features={features}
           countries={countries}
-          state={{ year: shownYear, lastMeasured, selected, planPath, overlay, twins: tab === 'Twins' ? twins : null }}
+          state={{ year: shownYear, lastMeasured, selected, planPath, overlay, twins: tab === 'Peers' ? peers : null }}
           onSelect={select}
           panelFraction={panelWidth / window.innerWidth}
         />
       )}
       {!world && <div className="text-mute absolute inset-0 grid place-items-center text-[0.9rem]">{error ?? 'Loading the world…'}</div>}
 
-      {world && <CommandBar countries={world.countries} targetRule={world.target_rule} onSelect={select} />}
+      {world && <CommandBar countries={world.countries} quickPicks={world.quick_picks} quickPickRule={world.quick_pick_rule} onSelect={select} />}
 
-      {world && !selected && (
-        <div className="fade pointer-events-none absolute top-28 left-5 z-10 max-w-[460px]">
-          <p className="text-[1.05rem] leading-snug">
-            See what a country's own resource income could fund, what each sector returns, and what macro trade-offs it creates.
-          </p>
-          <p className="text-mute mt-1.5 text-[0.85rem]">
-            For development finance institutions, NGOs and trade organizations.
-          </p>
-          <p className="text-mute mt-1.5 text-[0.85rem]">Click a country, or press Ctrl K to search.</p>
-        </div>
-      )}
       {world && (
-        <div className="fade text-mute pointer-events-none absolute top-[72px] left-5 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.72rem]">
+        <div className="fade text-mute pointer-events-none absolute top-[146px] left-5 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.72rem]">
           <span className="text-ink">Electricity access, {shownYear > lastMeasured ? `${shownYear} projected` : `latest data to ${shownYear}`}</span>
           {[...TIERS].reverse().map((t) => (
             <span key={t.label}><span style={{ color: t.hex }}>●</span> {t.range} · {t.label}</span>
           ))}
           <span><span style={{ color: NO_DATA }}>●</span> No data</span>
           {shownYear > lastMeasured && <span className="text-gold/80">gold tint = projected</span>}
+        </div>
+      )}
+      {world && !selected && (
+        <div className="fade pointer-events-none absolute top-[184px] left-5 z-10 max-w-[440px]">
+          <p className="text-[1.05rem] leading-snug">Pick an under-connected country to see peers that closed the gap and a solar, wind and grid plan.</p>
+          <p className="text-mute mt-1.5 text-[0.85rem]">Click a country, a quick pick above, or press Ctrl K to search.</p>
         </div>
       )}
 
@@ -252,21 +230,20 @@ function App() {
           onExport={country && sim ? () => setBriefOpen(true) : undefined}>
           <Boundary key={`${selected}-${tab}`} label={tab}>
           {!country && <div className="text-mute p-5 text-[0.85rem]">Loading…</div>}
-          {country && tab === 'Profile' && <Profile country={country} />}
+          {country && tab === 'Profile' && <Profile country={country} onPlan={() => setTab('Plan')} />}
+          {country && tab === 'Peers' && <PeersTab country={country} peers={peers} onPlaybook={applyPlaybook} />}
           {country && tab === 'Plan' && (
-            <PlanTab country={country} sim={sim} share={share} setShare={setShare} split={split} setSplit={setSplit}
-              presets={presets} activePreset={activePreset} onPreset={applyPreset} specs={specs} overrides={overrides} setOverrides={setOverrides}
-              supply={supply} setSupply={setSupply} reform={reform} setReform={setReform} />
+            <PlanTab country={country} sim={sim} split={split} setSplit={editSplit} onRecommended={() => { setSplit(null); setPlaybookLine(null) }}
+              playbookLine={playbookLine} rule={peers?.playbook_rule ?? null} specs={specs} overrides={overrides} setOverrides={setOverrides} />
           )}
-          {country && tab === 'Twins' && <TwinsTab country={country} twins={twins} presets={presets} onPlaybook={applyPlaybook} />}
           {country && tab === 'Stress' && (sim ? <StressTab sim={sim} /> : <div className="text-mute p-5 text-[0.85rem]">Simulating…</div>)}
-          {country && tab === 'Model' && <ModelTab country={country} twins={twins} />}
+          {country && tab === 'Model' && <ModelTab country={country} peers={peers} />}
           </Boundary>
         </CountryPanel>
       )}
-      <Advisor iso3={selected} name={country?.name ?? null} share={share} split={split} supply={supply} reform={reform} sim={sim} twins={twins} />
+      <Advisor iso3={selected} name={country?.name ?? null} split={split} overrides={overrides} sim={sim} peers={peers} />
       {briefOpen && country && sim && (
-        <Brief markdown={buildBrief({ country, sim, twins, split, specs, overrides })} onClose={() => setBriefOpen(false)} />
+        <Brief markdown={buildBrief({ country, sim, peers, specs, overrides })} onClose={() => setBriefOpen(false)} />
       )}
     </main>
   )

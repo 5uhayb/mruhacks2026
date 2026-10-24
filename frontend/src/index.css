@@ -97,6 +97,9 @@ input[type="text"]:focus, input[type="number"]:focus { border-color: var(--color
   border: 1.5px solid #f2a93b;
   animation: pulse 1.8s ease-out infinite;
 }
+.wind-marker { color: #5ec8e5; }
+.wind-marker .pulse, .wind-marker .pulse::after { background: #5ec8e5; border-color: #5ec8e5; }
+.wind-marker .pulse::after { background: transparent; }
 @keyframes pulse { from { transform: scale(0.6); opacity: 0.9; } to { transform: scale(1.8); opacity: 0; } }
 
 /* Printing prints only the brief, on white */

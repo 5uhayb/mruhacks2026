@@ -1,22 +1,18 @@
 import { useState, type ReactNode } from 'react'
-import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { PRESETS, SECTORS, type AssumptionSpec, type Country, type Preset, type Presets, type ReformInput, type Sector, type Simulation, type Split, type Supply } from '../../api'
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { SECTORS, type AssumptionSpec, type Country, type Simulation, type Split } from '../../api'
 import { formatCompact, formatInt, formatMoney, formatNumber, formatPct } from '../../lib/format'
-import { CountUp, Info, Section } from '../ui'
-import SplitBar, { SECTOR_STYLE } from './SplitBar'
-import { fitDomain } from './TwinsTab'
+import { CountUp, Info, Section, fitDomain } from '../ui'
+import SplitBar from './SplitBar'
 
 const AXIS = { stroke: '#4b5468', fontSize: 11, tickLine: false, axisLine: false, fontFamily: 'Geist Mono Variable' }
-export const GRID_NOTE = 'Assumes new power can reach homes through the grid; transmission and connection upgrades are not modelled.'
-export const DEFAULT_REFORM: ReformInput = { target_price: 0.6, phase_years: 5, rebate_share: 0.5, add_to_plan: true }
-const PRESET_LABEL: Record<Preset, string> = { playbook: 'Peer Playbook', balanced: 'Balanced', power: 'Power', mobility: 'Mobility', growth: 'Growth' }
-const PRESET_HOW = 'Presets search every split with each sector between 10% and 50% (5% steps) across 500 futures, at default assumptions, and keep 90% of spending on track in at least 80% of futures. Drag the handles to go beyond these bounds.'
+export const GRID_NOTE = 'Assumes new lines connect homes; local grid studies needed.'
 
-function Assumptions({ specs, overrides, setOverrides, countryDefaults }: {
+function Assumptions({ specs, overrides, setOverrides, householdSize }: {
   specs: Record<string, AssumptionSpec>
   overrides: Record<string, number>
   setOverrides: (o: Record<string, number>) => void
-  countryDefaults: Record<string, number>
+  householdSize: number | null
 }) {
   const [open, setOpen] = useState(false)
   const edited = Object.keys(overrides).length
@@ -29,20 +25,17 @@ function Assumptions({ specs, overrides, setOverrides, countryDefaults }: {
             <div key={g} className="space-y-3">
               <div className="label text-ink">{g}</div>
               {Object.entries(specs).filter(([, s]) => s.group === g).map(([key, s]) => {
-                const isRate = s.unit === 'rate' || s.unit === 'rate/pt' || s.unit === '/yr' || s.unit === 'ratio'
-                // Some defaults depend on the country (household size, fuel use), so show the value actually used
-                const v = overrides[key] ?? countryDefaults[key] ?? s.value
+                const isRate = s.unit === 'rate' || s.unit === 'ratio'
+                const v = overrides[key] ?? (key === 'household_size' && householdSize != null ? householdSize : s.value)
                 return (
-                  <div key={key}>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className={`cursor-help text-[0.85rem] underline decoration-dotted decoration-1 underline-offset-4 ${key in overrides ? 'text-gold' : ''}`} title={s.note}>{s.label}</span>
-                      <span className="flex items-center gap-1.5">
-                        <input type="number" className="num w-24 px-2 py-1 text-right text-[0.8rem]" value={isRate ? +(v * 100).toFixed(2) : v}
-                          step={isRate ? 0.1 : s.unit.startsWith('$') && s.max > 100 ? 1000 : 0.05}
-                          onChange={(e) => setOverrides({ ...overrides, [key]: isRate ? Number(e.target.value) / 100 : Number(e.target.value) })} />
-                        <span className="text-faint w-16 text-[0.7rem]">{isRate ? '%' : s.unit}</span>
-                      </span>
-                    </div>
+                  <div key={key} className="flex items-center justify-between gap-3">
+                    <span className={`cursor-help text-[0.85rem] underline decoration-dotted decoration-1 underline-offset-4 ${key in overrides ? 'text-gold' : ''}`} title={s.note}>{s.label}</span>
+                    <span className="flex items-center gap-1.5">
+                      <input type="number" className="num w-24 px-2 py-1 text-right text-[0.8rem]" value={isRate ? +(v * 100).toFixed(2) : v}
+                        step={isRate ? 0.1 : s.max > 1000 ? 1000 : s.max > 10 ? 1 : 0.01}
+                        onChange={(e) => setOverrides({ ...overrides, [key]: isRate ? Number(e.target.value) / 100 : Number(e.target.value) })} />
+                      <span className="text-faint w-20 text-[0.7rem]">{isRate ? '%' : s.unit}</span>
+                    </span>
                   </div>
                 )
               })}
@@ -51,280 +44,115 @@ function Assumptions({ specs, overrides, setOverrides, countryDefaults }: {
           {edited > 0 && <button onClick={() => setOverrides({})} className="text-gold text-[0.8rem]">Reset to defaults</button>}
         </div>
       ) : (
-        <p className="text-mute text-[0.82rem]">Every number above depends on these editable assumptions.</p>
+        <p className="text-mute text-[0.82rem]">Every number above depends on these editable estimates.</p>
       )}
-      <div className="mt-2"><Info label="Limitations" text={`${GRID_NOTE} Storage is not costed. Hover an assumption's name to see what it means.`} /></div>
+      <div className="mt-2"><Info label="Limitations" text={`${GRID_NOTE} Hover an assumption's name to see what it means. Wind speeds are 50 m NASA point averages; turbine sites need detailed local studies.`} /></div>
     </Section>
   )
 }
 
-function Card({ label, value, sub, note }: { label: string; value: ReactNode; sub?: ReactNode; note?: string }) {
+function Card({ label, value, children, note }: { label: string; value: ReactNode; children?: ReactNode; note?: string }) {
   return (
     <div className="border-edge rounded-md border p-3">
       <div className="label">{label} <span className="text-faint normal-case tracking-normal">· estimate</span></div>
       <div className="num text-gold mt-1 text-[1.3rem] leading-none">{value}</div>
-      {sub && <div className="text-mute mt-1.5 text-[0.78rem] leading-snug">{sub}</div>}
-      {note && <div className="mt-1"><Info text={note} /></div>}
+      {children && <div className="text-mute mt-1.5 space-y-0.5 text-[0.78rem] leading-snug">{children}</div>}
+      {note && <div className="text-faint mt-1.5 text-[0.72rem] leading-snug">{note}</div>}
     </div>
   )
 }
 
-/** One sector: what it builds, what it cost, what it returns each year, and how long it takes to pay back */
-function SectorCard({ sector, sim, headline, sub }: { sector: Sector; sim: Simulation; headline: ReactNode; sub: string }) {
-  const e = sim.sectors[sector]
-  const fund = sector === 'fund'
+function ShareInput({ value, onChange, label }: { value: number; onChange: (v: number) => void; label: string }) {
   return (
-    <div className="border-edge rounded-md border p-3" style={{ borderTopColor: SECTOR_STYLE[sector].color, borderTopWidth: 2 }}>
-      <div className="label">{SECTOR_STYLE[sector].label} <span className="text-faint normal-case tracking-normal">· estimate</span></div>
-      <div className="num text-gold mt-1 text-[1.3rem] leading-none">{headline}</div>
-      <div className="text-mute mt-1.5 text-[0.76rem] leading-snug">{sub}</div>
-      <dl className="border-edge num mt-2 grid grid-cols-3 gap-1 border-t pt-2 text-[0.76rem]">
-        <div><dt className="text-faint text-[0.66rem]">{fund ? 'Saved' : 'Invested'}</dt><dd>{formatMoney(e.capex)}</dd></div>
-        <div><dt className="text-faint text-[0.66rem]">Return</dt><dd>{formatMoney(e.annual_return)}/yr</dd></div>
-        <div><dt className="text-faint text-[0.66rem]">Payback</dt><dd>{e.payback != null ? `${formatNumber(e.payback, 1)} yrs` : 'None needed'}</dd></div>
-      </dl>
-      <div className="mt-1.5"><Info text={`${e.basis}${sector === 'rail' ? '; payback is per km of corridor once open' : fund ? '; the capital stays liquid' : ''}. Returns and paybacks use the editable assumptions (estimates).`} /></div>
-    </div>
+    <input type="number" aria-label={label} className="num w-14 px-1.5 py-0.5 text-right text-[0.8rem]" value={+(value * 100).toFixed(1)} step={0.5} min={0}
+      onChange={(e) => onChange(Math.max(0, Number(e.target.value)) / 100)} />
   )
 }
 
-function NumberField({ label, value, onChange, step, unit, min, max }: { label: string; value: number; onChange: (v: number) => void; step: number; unit: string; min: number; max: number }) {
-  return (
-    <label className="flex items-center justify-between gap-3 text-[0.82rem]">
-      <span>{label}</span>
-      <span className="flex items-center gap-1.5">
-        <input type="number" className="num w-20 px-2 py-1 text-right text-[0.8rem]" value={value} step={step} min={min} max={max}
-          onChange={(e) => onChange(Math.min(max, Math.max(min, Number(e.target.value))))} />
-        <span className="text-faint w-10 text-[0.7rem]">{unit}</span>
-      </span>
-    </label>
-  )
-}
-
-function ReformAndSupply({ sim, startYear, supply, setSupply, reform, setReform, specs, overrides, setOverrides }: {
-  sim: Simulation
-  startYear: number
-  supply: Supply
-  setSupply: (s: Supply) => void
-  reform: ReformInput | null
-  setReform: (r: ReformInput | null) => void
-  specs: Record<string, AssumptionSpec>
-  overrides: Record<string, number>
-  setOverrides: (o: Record<string, number>) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const r = sim.reform
-  const threshold = (overrides.cpi_warning ?? specs.cpi_warning?.value ?? 0.03) * 100
-  const full = r ? Math.min(r.phase_years, 10) - 1 : 0
-  const relief = r ? r.rail_relief.indexOf(true) : -1
-  const chart = r ? r.cpi.map((v, i) => ({ year: startYear + i + 1, cpi: v * 100, relief: r.rail_relief[i] })) : []
-  return (
-    <Section title="Fuel price reform & supply chain" right={<button onClick={() => setOpen(!open)} className="hover:text-ink">{open ? 'Hide ▴' : 'Show ▾'}</button>}>
-      {!open ? (
-        <p className="text-mute text-[0.82rem]">
-          Solar: {sim.supply.label}. Fuel price reform: {reform ? `on, ${formatMoney(r?.freed[full])}/yr freed` : 'off'}.
-        </p>
-      ) : (
-        <div className="space-y-5">
-          <div>
-            <div className="label text-ink mb-2">Solar supply chain</div>
-            <div className="border-edge flex overflow-hidden rounded-md border text-[0.8rem]" role="group" aria-label="Solar supply chain">
-              {(['import', 'local'] as Supply[]).map((k) => (
-                <button key={k} onClick={() => setSupply(k)} className={`flex-1 px-3 py-1.5 ${supply === k ? 'bg-edge text-ink' : 'text-mute hover:text-ink'}`}>
-                  {k === 'import' ? 'Import from Tier-1 licensed OEMs' : 'Local assembly joint venture'}
-                </button>
-              ))}
-            </div>
-            <p className="text-mute mt-2 text-[0.78rem] leading-snug">
-              {supply === 'local'
-                ? `Cost ×${formatNumber(sim.supply.capex_mult, 2)}, ${sim.supply.build_years}-year lead time, ~${formatInt(sim.supply.jobs)} local jobs, ${formatMoney(sim.supply.local_value)} kept at home (estimates).`
-                : `Cost ×${formatNumber(sim.supply.capex_mult, 2)} with tariffs, farms running after ${sim.supply.build_years} ${sim.supply.build_years === 1 ? 'year' : 'years'} (estimates).`}{' '}
-              <Info text={`${sim.supply.note} Import: lower cost per watt plus import tariff and logistics, faster deployment. Local assembly joint venture: higher cost and longer lead time at first, but creates manufacturing jobs and keeps part of the spending in the country. All figures are editable estimates under Assumptions → Solar sourcing.`} />
-            </p>
-          </div>
-
-          <div>
-            <label className="flex items-center gap-2 text-[0.85rem]">
-              <input type="checkbox" checked={!!reform} onChange={(e) => setReform(e.target.checked ? DEFAULT_REFORM : null)} />
-              <span className="label text-ink">Gradual fuel price reform</span>
-              <span className="text-faint text-[0.72rem]">optional funding source</span>
-            </label>
-            {reform && (
-              <div className="mt-3 space-y-2">
-                <NumberField label="Current pump price (estimate)" unit="$/L" step={0.01} min={0.01} max={2}
-                  value={overrides.fuel_price_now ?? specs.fuel_price_now?.value ?? 0.15}
-                  onChange={(v) => setOverrides({ ...overrides, fuel_price_now: v })} />
-                <NumberField label="Target domestic fuel price" unit="$/L" step={0.05} min={0.01} max={3} value={reform.target_price}
-                  onChange={(v) => setReform({ ...reform, target_price: v })} />
-                <NumberField label="Phase-in period" unit="years" step={1} min={1} max={10} value={reform.phase_years}
-                  onChange={(v) => setReform({ ...reform, phase_years: Math.round(v) })} />
-                <NumberField label="Savings returned as cash rebates" unit="%" step={5} min={0} max={100} value={Math.round(reform.rebate_share * 100)}
-                  onChange={(v) => setReform({ ...reform, rebate_share: v / 100 })} />
-                <label className="flex items-center gap-2 text-[0.82rem]">
-                  <input type="checkbox" checked={reform.add_to_plan} onChange={(e) => setReform({ ...reform, add_to_plan: e.target.checked })} />
-                  Add the savings kept by the state to the investment plan
-                </label>
-                <p className="text-faint text-[0.72rem] leading-snug">
-                  Current price is a placeholder estimate; set the real pump price.{' '}
-                  <Info text={`${r ? (r.litres_source
-                    ? `Fuel use: ${formatInt(r.litres_per_person)} L per person a year, from World Bank energy use (${formatInt(r.litres_source.energy_kgoe)} kg of oil equivalent per person, ${r.litres_source.year}) × road fuel share (estimate) × 1.2 L per kg.`
-                    : `Fuel use: ${formatInt(r.litres_per_person)} L per person a year (edited).`) : ''} Subsidy freed = price rise × fuel use × population, before any change in how much fuel people buy. Pass-through and freight relief are editable under Assumptions.`} />
-                </p>
-              </div>
-            )}
-            {reform && r && (
-              <>
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  <Card label="Subsidy freed" value={`${formatMoney(r.freed[full])}/yr`}
-                    sub={`${formatMoney(r.kept[full])}/yr kept after rebates${r.add_to_plan ? ', added to the plan' : ''}.`} />
-                  <div className="border-edge rounded-md border p-3">
-                    <div className="label">Consumer inflation <span className="text-faint normal-case tracking-normal">· estimate</span></div>
-                    <div className={`num mt-1 text-[1.3rem] leading-none ${r.warning ? 'text-down' : 'text-gold'}`}>+{formatNumber(r.peak_cpi * 100, 1)}% CPI</div>
-                    <div className="text-mute mt-1.5 text-[0.78rem] leading-snug">Per year during the {r.phase_years}-year phase-in.</div>
-                    {r.warning && <span className="bg-down/15 text-down mt-1.5 inline-block rounded px-1.5 py-0.5 text-[0.7rem]">Above the {formatNumber(threshold, 0)}%/yr warning level</span>}
-                  </div>
-                  <Card label="Net cost per household" value={`${formatMoney(r.net_per_home_month[full])}/mo`}
-                    sub={`${formatMoney(r.cost_per_home_month[full])} costs − ${formatMoney(r.rebate_per_home_month[full])} rebate, per month.`} />
-                </div>
-                <div className="mt-3 h-[120px]">
-                  <div className="text-mute mb-1 text-[0.72rem]">Inflation added by the reform, % per year</div>
-                  <ResponsiveContainer width="100%" height="85%">
-                    <BarChart data={chart} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
-                      <CartesianGrid stroke="#1e2638" vertical={false} />
-                      <XAxis dataKey="year" {...AXIS} interval={1} />
-                      <YAxis {...AXIS} tickFormatter={(v) => `${v}%`} />
-                      <ReferenceLine y={threshold} stroke="#ef5350" strokeDasharray="4 4" />
-                      <Tooltip contentStyle={{ background: '#0d1320', border: '1px solid #1e2638', borderRadius: 6, fontSize: 12 }}
-                        formatter={(v) => [`${formatNumber(Number(v), 2)}%`, 'Inflation added']} />
-                      <Bar dataKey="cpi" isAnimationActive={false}>
-                        {chart.map((c) => <Cell key={c.year} fill={c.relief ? '#5ec8e5' : '#f2a93b'} />)}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-                <p className="text-mute mt-1 text-[0.78rem] leading-snug">
-                  {relief >= 0
-                    ? `Rebates cut family costs, not inflation; freight relief (blue) starts when the corridor opens in ${startYear + relief + 1}.`
-                    : 'Rebates cut family costs, not inflation; no freight relief until the transport corridor is complete.'}{' '}
-                  <Info text={`Inflation added each year = the rise in what households pay for fuel, directly and through passed-on business costs, ÷ household spending (${formatMoney(r.spending.value)}, ${r.spending.year}, ${r.spending.source}). Rebates are cash back to families, so they lower net cost but not prices. Once the rail corridor is complete, cheaper freight removes part of the passed-on transport cost. Figures are at the full price (year ${r.phase_years}), before any change in how much fuel people buy.`} />
-                </p>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-    </Section>
-  )
-}
-
-export default function PlanTab({ country, sim, share, setShare, split, setSplit, onPreset, presets, activePreset, specs, overrides, setOverrides, supply, setSupply, reform, setReform }: {
+export default function PlanTab({ country, sim, split, setSplit, onRecommended, playbookLine, rule, specs, overrides, setOverrides }: {
   country: Country
   sim: Simulation | null
-  share: number
-  setShare: (v: number) => void
-  split: Split
+  split: Split | null
   setSplit: (s: Split) => void
-  onPreset: (p: Preset) => void
-  presets: Presets | null
-  activePreset: Preset | null
+  onRecommended: () => void
+  /** Explanation when the split came from a peer's playbook */
+  playbookLine: string | null
+  rule: string | null
   specs: Record<string, AssumptionSpec>
   overrides: Record<string, number>
   setOverrides: (o: Record<string, number>) => void
-  supply: Supply
-  setSupply: (s: Supply) => void
-  reform: ReformInput | null
-  setReform: (r: ReformInput | null) => void
 }) {
-  const y = sim?.years[sim.years.length - 1]
-  const outlook = country.outlook
-  // Countries already at ≥99% access: the meaningful headline is clean electricity, not access
-  const accessDone = (sim?.start.access ?? 0) >= 99
+  const shown = split ?? sim?.split ?? null
   const startYear = sim?.start.access_year ?? new Date().getFullYear()
-  const key = accessDone ? 'renewable_pct' : 'access_pct'
-  const startValue = sim ? (accessDone ? sim.start.clean : sim.start.access) : 0
-  const noPlan = (t: number) => (!accessDone && outlook && !outlook.no_gap ? startValue + (outlook.change * t) / 10 : startValue)
-  const chart = sim ? [{ year: startYear, plan: startValue, none: startValue }, ...sim.years.map((r) => ({ year: startYear + r.year, plan: r[key], none: noPlan(r.year) }))] : []
+  const outlook = country.outlook
+  const noPlan = (t: number) => (sim && outlook && !outlook.no_gap ? sim.start.access + (outlook.change * t) / 10 : sim?.start.access ?? 0)
+  const chart = sim ? [{ year: startYear, plan: sim.start.access, none: sim.start.access }, ...sim.years.map((r) => ({ year: startYear + r.year, plan: r.access_pct, none: noPlan(r.year) }))] : []
   const domain = fitDomain(chart.flatMap((c) => [c.plan, c.none]))
-  const h = sim?.homes
-  const rail = sim?.rail
-  const active = activePreset ? presets?.presets[activePreset] : null
-  const matches = !!active && SECTORS.every((k) => Math.abs(active.split[k] - split[k]) < 0.5)
+  const isRecommended = !!sim && !!shown && SECTORS.every((k) => Math.abs(sim.recommendation.split[k] - shown[k]) < 0.5)
+  const b = sim?.budget ?? country.budget
+  const set = (key: string) => (v: number) => setOverrides({ ...overrides, [key]: v })
 
   return (
     <>
-      <Section title="Capital allocation" right={sim ? `${formatMoney(sim.base_revenue, 2)} a year of ${country.resource} income` : undefined}>
-        <div className="flex items-baseline justify-between">
-          <span className="text-[1rem]">Invest <span className="num text-gold">{Math.round(share * 100)}%</span> of {country.resource} income</span>
-          {sim && <span className="num text-gold text-[1.1rem]"><CountUp value={sim.pool} format={(v) => formatMoney(v, 2)} /> / yr</span>}
+      <Section title="Budget" right={<span className="num text-gold text-[0.95rem]">{formatMoney(b.total, 2)} / yr</span>}>
+        <div className="space-y-1.5 text-[0.84rem]">
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex items-center gap-1.5"><ShareInput label="Share of GDP" value={b.gdp.share} onChange={set('budget_gdp_share')} />% of GDP ({formatMoney(b.gdp.base)}, {b.gdp.year})</span>
+            <span className="num">{formatMoney(b.gdp.amount, 2)}</span>
+          </div>
+          {b.resource.base > 0 && (
+            <div className="flex items-center justify-between gap-3">
+              <span className="flex items-center gap-1.5"><ShareInput label="Share of resource income" value={b.resource.share} onChange={set('budget_resource_share')} />% of {b.resource.word} income ({formatMoney(b.resource.base)}/yr{b.resource.years ? `, ${b.resource.years[0]}–${b.resource.years[1]}` : ''})</span>
+              <span className="num">{formatMoney(b.resource.amount, 2)}</span>
+            </div>
+          )}
         </div>
-        <input className="big mt-2" type="range" min={0} max={0.3} step={0.01} value={share} onChange={(e) => setShare(Number(e.target.value))} aria-label="Share of resource income invested" />
-        {sim?.low_resource.is_low && (
-          <p className="text-mute mt-1 text-[0.8rem]">
-            Resource income is a small share of this economy ({formatPct(sim.low_resource.rents_pct_gdp)} of GDP), so this plan has limited impact here.
-          </p>
-        )}
-        <div className="mt-4 flex flex-wrap items-center gap-1.5" role="group" aria-label="Presets">
-          {PRESETS.map((p) => {
-            const r = presets?.presets[p]
-            if (p === 'playbook' && presets && !r) return null
-            return (
-              <button key={p} onClick={() => onPreset(p)} disabled={!r} title={r?.line}
-                className={`rounded-full border px-3 py-1 text-[0.8rem] transition-colors disabled:opacity-50 ${activePreset === p && matches ? 'border-gold text-gold bg-gold/10' : 'border-edge text-mute hover:text-ink hover:border-mute'}`}>
-                {PRESET_LABEL[p]}
-              </button>
-            )
-          })}
-          <Info text={presets?.presets.playbook?.rule ? `${PRESET_HOW} Peer Playbook: ${presets.presets.playbook.rule}` : PRESET_HOW} />
-        </div>
-        <p className="text-mute mt-2 min-h-[1.2em] text-[0.8rem] leading-snug">
-          {active && matches ? active.line : presets ? 'Pick a preset, or drag the handles.' : 'Preparing presets…'}
-        </p>
-        <SplitBar split={split} setSplit={setSplit} amounts={sim?.split_amounts ?? null} />
       </Section>
 
-      {sim && y && h && rail && (
-        <Section title={`By ${startYear + 10}: four sectors`}>
-          <div className="grid grid-cols-2 gap-3">
-            <SectorCard sector="solar" sim={sim} headline={<CountUp value={y.solar_mw} format={(v) => formatCompact(v, 'MW')} />}
-              sub={`Solar at ${sim.sites[0]?.site ?? 'the sunniest site'} and beyond`} />
-            <SectorCard sector="rail" sim={sim} headline={<CountUp value={rail.funded_km} format={(v) => formatCompact(v, 'km')} />}
-              sub={rail.from
-                ? `${rail.from} → ${rail.to}: ${formatInt(rail.funded_km)} of ${formatInt(rail.route_km)} km${rail.complete_year ? `, complete in ${startYear + rail.complete_year}` : ''}`
-                : 'New freight lines (no corridor defined for this country)'} />
-            <SectorCard sector="industry" sim={sim} headline={<CountUp value={sim.sectors.industry.capex} format={(v) => formatMoney(v)} />}
-              sub="Capital in tourism and non-oil industry (hotels, logistics, processing)" />
-            <SectorCard sector="fund" sim={sim} headline={<CountUp value={y.fund} format={(v) => formatMoney(v)} />}
-              sub={`About ${formatNumber(sim.months_covered, 1)} months of ${country.resource} income, to cover bad years`} />
+      <Section title="Mix">
+        {sim && (
+          <div className="border-gold/40 bg-gold/5 flex items-start justify-between gap-3 rounded-md border px-3 py-2">
+            <div className="text-[0.88rem] leading-snug">
+              <p>
+                {sim.recommendation.banner}{' '}
+                {rule && <Info text={`Solar and wind are variable, not baseload; storage and the grid cover gaps. ${rule}`} />}
+              </p>
+              {playbookLine && <p className="text-gold mt-1 text-[0.8rem]">{playbookLine}</p>}
+            </div>
+            {!isRecommended && (
+              <button onClick={onRecommended} className="text-gold hover:text-ink shrink-0 text-[0.78rem] underline underline-offset-2">Use recommended</button>
+            )}
           </div>
+        )}
+        {shown && <SplitBar split={shown} setSplit={setSplit} amounts={sim?.split_amounts ?? null} />}
+      </Section>
 
-          <div className="mt-3 grid grid-cols-3 gap-3">
-            {accessDone ? (
-              <Card label="Clean electricity" value={<CountUp value={y.renewable_pct} format={(v) => formatPct(v)} />}
-                sub={`From ${formatPct(sim.start.clean)} (${sim.start.clean_year}). Access already ${formatPct(sim.start.access)} (${sim.start.access_year}).`} />
-            ) : (
-              <Card label="Has electricity" value={<CountUp value={y.access_pct} format={(v) => formatPct(v)} />}
-                sub={sim.access_full_year
-                  ? `Everyone by ${startYear + sim.access_full_year}, from ${formatPct(sim.start.access)} (${sim.start.access_year})`
-                  : `From ${formatPct(sim.start.access)} (${sim.start.access_year})`}
-                note={GRID_NOTE} />
-            )}
-            {accessDone ? (
-              <Card label="Has electricity" value={formatPct(y.access_pct)} sub={`Already near-universal (${sim.start.access_year})`} />
-            ) : (
-              <Card label="Clean electricity" value={<CountUp value={y.renewable_pct} format={(v) => formatPct(v)} />}
-                sub={`From ${formatPct(sim.start.clean)} (${sim.start.clean_year})`} />
-            )}
-            <Card label="Homes" value={h.every_home ? 'Every home' : <CountUp value={h.homes_powered} format={(v) => formatCompact(v)} />}
-              sub={h.every_home
-                ? `All ~${formatCompact(h.households)} households, ${formatPct(h.left_over_share * 100, 0)} left for business`
-                : `${formatPct(h.coverage * 100, 0)} of ${formatCompact(h.households)} households (${formatNumber(sim.household_size, 1)} people each)`} />
+      {sim && (
+        <Section title={`By ${startYear + 10}`}>
+          <div className="grid grid-cols-2 gap-3">
+            <Card label="Solar added" value={<CountUp value={sim.cards.solar.mw} format={(v) => formatCompact(v, 'MW')} />}>
+              <div>{formatMoney(sim.cards.solar.capex)} invested · payback {sim.cards.solar.payback != null ? `${formatNumber(sim.cards.solar.payback, 1)} yrs` : 'n/a'}</div>
+              <div>Best site: {sim.cards.solar.site.site}, {formatNumber(sim.cards.solar.site.value, 1)} kWh/m²/day</div>
+            </Card>
+            <Card label="Wind added" value={<CountUp value={sim.cards.wind.mw} format={(v) => formatCompact(v, 'MW')} />}>
+              <div>~{formatInt(sim.cards.wind.turbines)} turbines of {formatNumber(sim.cards.wind.mw_per_turbine, 1)} MW · {formatMoney(sim.cards.wind.capex)}</div>
+              <div>Best site: {sim.cards.wind.site.site}, {formatNumber(sim.cards.wind.site.value, 1)} m/s · capacity factor {formatPct(sim.cards.wind.capacity_factor * 100, 0)}</div>
+            </Card>
+            <Card label="Grid & storage" value={<CountUp value={sim.cards.grid.km} format={(v) => formatCompact(v, 'km')} />}>
+              <div>{formatCompact(sim.cards.grid.storage_mwh, 'MWh')} of storage · {formatMoney(sim.cards.grid.capex)}</div>
+              <div>Lines reach ~{formatCompact(sim.cards.grid.households)} homes</div>
+            </Card>
+            <Card label="Electricity access" value={<CountUp value={sim.cards.access.value} format={(v) => formatPct(v)} />} note={GRID_NOTE}>
+              <div>From {formatPct(sim.start.access)} ({sim.start.access_year}) · clean share {formatPct(sim.cards.access.clean)}</div>
+              <div>Limited by {sim.limit === 'lines' ? 'lines (more grid & storage helps)' : 'generation (more solar or wind helps)'}</div>
+            </Card>
           </div>
 
           <div className="mt-5 h-[160px]">
             <div className="text-mute mb-1 flex flex-wrap gap-x-4 text-[0.75rem]">
-              <span>{accessDone ? 'Clean electricity share' : 'Electricity access'}, %</span>
+              <span>Electricity access, %</span>
               <span><span className="bg-gold mr-1.5 inline-block h-[2px] w-3 align-middle" />With this plan</span>
-              <span><span className="bg-mute mr-1.5 inline-block h-[2px] w-3 align-middle" />{accessDone ? 'No plan (held at latest value)' : 'No plan (impact model)'}</span>
+              <span><span className="bg-mute mr-1.5 inline-block h-[2px] w-3 align-middle" />No plan (impact model)</span>
             </div>
             <ResponsiveContainer width="100%" height="85%">
               <LineChart data={chart} margin={{ top: 6, right: 8, left: -12, bottom: 0 }}>
@@ -340,11 +168,7 @@ export default function PlanTab({ country, sim, share, setShare, split, setSplit
           </div>
         </Section>
       )}
-      {sim && (
-        <ReformAndSupply sim={sim} startYear={startYear} supply={supply} setSupply={setSupply} reform={reform} setReform={setReform}
-          specs={specs} overrides={overrides} setOverrides={setOverrides} />
-      )}
-      <Assumptions specs={specs} overrides={overrides} setOverrides={setOverrides} countryDefaults={sim?.country_defaults ?? {}} />
+      <Assumptions specs={specs} overrides={overrides} setOverrides={setOverrides} householdSize={sim?.household_size ?? null} />
     </>
   )
 }

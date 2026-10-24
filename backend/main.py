@@ -44,11 +44,12 @@ async def lifespan(_: FastAPI):
     ML["projections"] = json.loads((MODELS / "projections.json").read_text())
     signature.world()
     w = world()
-    first = w.quick_picks[0]["iso3"] if w.quick_picks else "NGA"
-    country(first)  # also warms SHAP and LightGBM, whose first call is slow
-    peers(first)
-    simulate(SimulateRequest(iso3=first))
-    print(f"Models loaded in {time.time() - start:.1f}s · {len(ML['peers'].windows)} peer windows · {first} preloaded")
+    first = w.quick_picks[0]["iso3"] if w.quick_picks else None
+    if first:  # the first quick pick, end to end (also warms SHAP and LightGBM, whose first call is slow)
+        country(first)
+        peers(first)
+        simulate(SimulateRequest(iso3=first))
+    print(f"Models loaded in {time.time() - start:.1f}s · {len(ML['peers'].windows)} peer windows · preloaded {first or 'nothing'}")
     yield
 
 

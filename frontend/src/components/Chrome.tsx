@@ -1,14 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { WorldCountry } from '../api'
+import type { QuickPick, WorldCountry } from '../api'
 import { formatPct } from '../lib/format'
 import { useLog } from '../log'
 import { Flag } from './ui'
 
-/** Top bar: wordmark and country search. Cmd/Ctrl+K focuses it, Enter flies to the first match.
- *  Revitalization targets (chosen by a data rule) are listed first, then all countries. */
-export function CommandBar({ countries, targetRule, onSelect }: {
+const latestAccess = (c: WorldCountry) => {
+  const years = Object.keys(c.access).map(Number)
+  return years.length ? c.access[Math.max(...years)] : null
+}
+
+/** Top bar: wordmark, country search and quick picks. Cmd/Ctrl+K focuses search, Enter flies to the first match.
+ *  Countries below 90% access are listed first, then all countries. */
+export function CommandBar({ countries, quickPicks, quickPickRule, onSelect }: {
   countries: WorldCountry[]
-  targetRule: string
+  quickPicks: QuickPick[]
+  quickPickRule: string
   onSelect: (iso3: string) => void
 }) {
   const [query, setQuery] = useState('')
@@ -33,13 +39,14 @@ export function CommandBar({ countries, targetRule, onSelect }: {
     const hit = (c: WorldCountry) => !q || c.name.toLowerCase().includes(q) || c.iso3.toLowerCase() === q
     const order = (a: WorldCountry, b: WorldCountry) =>
       Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)) || a.name.localeCompare(b.name)
-    const targets = countries.filter((c) => c.target.length && hit(c)).sort(order)
-    const rest = countries.filter((c) => !c.target.length && hit(c)).sort(order)
+    const under = (c: WorldCountry) => (latestAccess(c) ?? 100) < 90
+    const targets = countries.filter((c) => under(c) && hit(c)).sort(order)
+    const rest = countries.filter((c) => !under(c) && hit(c)).sort(order)
     return [
-      { name: 'Revitalization targets', items: q ? targets.slice(0, 6) : targets, title: targetRule },
+      { name: 'Below 90% access', items: q ? targets.slice(0, 6) : targets, title: 'Latest World Bank electricity access below 90%.' },
       { name: 'All countries', items: q ? rest.slice(0, 6) : rest, title: undefined },
     ].filter((g) => g.items.length)
-  }, [query, countries, targetRule])
+  }, [query, countries])
   const flat = groups.flatMap((g) => g.items)
 
   function choose(iso3: string) {
@@ -50,13 +57,16 @@ export function CommandBar({ countries, targetRule, onSelect }: {
   }
 
   return (
-    <div className="pointer-events-none absolute top-0 right-0 left-0 z-20 flex items-center gap-4 px-5 py-4">
-      <div className="pointer-events-auto flex items-baseline gap-2">
-        <span className="text-[1.15rem] font-semibold tracking-tight">Nahda</span>
-        <span className="text-mute text-[1rem]" lang="ar">نهضة</span>
-        <span className="text-faint ml-1 hidden text-[0.75rem] xl:inline">Pre-feasibility &amp; capital allocation</span>
+    <div className="pointer-events-none absolute top-0 right-0 left-0 z-20 flex items-start gap-4 px-5 py-4">
+      <div className="pointer-events-auto">
+        <div className="flex items-baseline gap-2">
+          <span className="text-[1.15rem] font-semibold tracking-tight">Nahda</span>
+          <span className="text-mute text-[1rem]" lang="ar">نهضة</span>
+          <span className="text-mute text-[0.95rem]">— Electrification planner</span>
+        </div>
+        <div className="text-faint text-[0.75rem]">Match under-connected countries with peers that closed their electricity gap.</div>
       </div>
-      <div className="pointer-events-auto relative w-[360px]">
+      <div className="pointer-events-auto relative w-[420px]">
         <input
           ref={input}
           type="text"
@@ -94,15 +104,25 @@ export function CommandBar({ countries, targetRule, onSelect }: {
                       key={c.iso3}
                       onMouseDown={() => choose(c.iso3)}
                       onMouseEnter={() => setActive(i)}
-                      title={c.target.length ? c.target.join(' · ') : undefined}
+                      title={c.hover}
                       className={`flex w-full items-baseline justify-between gap-3 px-3 py-1.5 text-left text-[0.86rem] ${i === active ? 'bg-edge' : ''}`}
                     >
-                      <span className="flex items-baseline gap-2"><Flag iso3={c.iso3} /><span>{c.name}{c.target.length > 0 && <span className="text-faint ml-2 text-[0.72rem]">{c.target.slice(1).join(' · ')}</span>}</span></span>
+                      <span className="flex items-baseline gap-2"><Flag iso3={c.iso3} /><span>{c.name}{latestAccess(c) != null && <span className="text-faint ml-2 text-[0.72rem]">{formatPct(latestAccess(c))}</span>}</span></span>
                       <span className="num text-faint text-[0.72rem]">{c.iso3}</span>
                     </button>
                   )
                 })}
               </div>
+            ))}
+          </div>
+        )}
+        {quickPicks.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label="Quick picks">
+            {quickPicks.map((p) => (
+              <button key={p.iso3} onClick={() => onSelect(p.iso3)} title={quickPickRule}
+                className="bg-panel/90 border-edge hover:border-mute flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.76rem]">
+                <Flag iso3={p.iso3} />{p.name}<span className="num text-mute">{formatPct(p.access, 0)}</span>
+              </button>
             ))}
           </div>
         )}

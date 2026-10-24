@@ -1,4 +1,4 @@
-import type { Country, Scores, Twins } from '../../api'
+import type { Country, Peers, Scores } from '../../api'
 import { formatDelta, formatInt, formatNumber, formatPct } from '../../lib/format'
 import { Info, Section } from '../ui'
 
@@ -53,7 +53,7 @@ function Metrics({ title, s, sentence }: { title: string; s: Scores; sentence: s
   )
 }
 
-export default function ModelTab({ country, twins }: { country: Country; twins: Twins | null }) {
+export default function ModelTab({ country, peers }: { country: Country; peers: Peers | null }) {
   const m = country.model_card
   const o = country.outlook
   return (
@@ -102,11 +102,11 @@ export default function ModelTab({ country, twins }: { country: Country; twins: 
 
       <Section title="Pipeline">
         <ol className="num text-mute space-y-1.5 text-[0.78rem]">
-          <li><span className="text-ink">Data</span> · World Bank panel, {m.countries} countries, forward-filled within country · NASA sunlight per country</li>
-          <li><span className="text-cyan">Twins</span> · DTW over {twins ? formatInt(twins.windows_searched) : 'about 3,000'} five-year windows, best match per country</li>
+          <li><span className="text-ink">Data</span> · World Bank panel, {m.countries} countries, with urban and rural access · NASA sun and 50 m wind at several points per country</li>
+          <li><span className="text-cyan">Peers</span> · DTW on electricity features over {peers ? formatInt(peers.windows_searched) : 'qualifying'} windows that meet the selection rule</li>
           <li><span className="text-ink">Impact</span> · LightGBM + SHAP, time-split evaluation</li>
-          <li><span className="text-gold">Optimizer</span> · grid search over splits, ≥80% of futures funded</li>
-          <li><span className="text-down">Stress</span> · 500 block-bootstrap futures from the country's own income history</li>
+          <li><span className="text-gold">Plan</span> · solar / wind / grid & storage mix from resource thresholds and a lines-vs-generation balance</li>
+          <li><span className="text-down">Stress</span> · 500 budget futures from the country's own GDP and resource-income history, plus 3 shocks</li>
         </ol>
       </Section>
     </>

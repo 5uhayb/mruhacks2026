@@ -210,3 +210,10 @@ export function Flag({ iso3, className = '' }: { iso3: string; className?: strin
   const c = flagClass(iso3)
   return c ? <span className={`${c} flag ${className}`} aria-hidden /> : null
 }
+
+/** y-axis that fits the data: from 10 below the lowest value to 5 above the highest, within 0–100 */
+export function fitDomain(values: number[]): [number, number] {
+  const lo = Math.max(0, Math.floor(Math.min(...values) - 10))
+  const hi = Math.min(100, Math.ceil(Math.max(...values) + 5))
+  return [lo, Math.max(hi, lo + 5)]
+}

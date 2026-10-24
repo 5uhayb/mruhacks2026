@@ -1,37 +1,31 @@
-# Nahda (نهضة)
+# Nahda (نهضة) — Electrification planner
 
 **MRUHacks 2026 · Theme: Revitalize**
 
-**A pre-feasibility and capital allocation tool** for development finance institutions (DFIs), NGOs and trade organizations: see what a country's own resource income could fund, what each sector returns, and what macro trade-offs it creates.
+Match under-connected countries with peers that closed their electricity gap. Nahda helps countries below 90% electricity access plan how to close it: it finds historical peers that succeeded and recommends a solar / wind / grid & storage mix from each country's real sun and wind data.
 
-Pick any country on a 3D globe and see where it stands, what similar countries did differently, how a share of its resource income could be split across power, transport, tourism & industry and a savings fund, what each sector returns, what a gradual fuel price reform would free up (and cost in inflation), and whether the plan survives bad years. It describes scenarios; it does not tell any government what to do.
-
-**Start:** double-click `start.bat` (opens http://localhost:5173), or run the two servers below.
+**Start:** double-click `start.bat` (opens http://localhost:5173). To share a public link, double-click `share.bat`.
 
 ## The workspace
 
-The globe is the app. Click a country (or press **Ctrl K** to search) and a panel opens beside it:
+The globe colors every country by electricity access (red below 60% critical, amber 60–90% struggling, slate 90%+ connected, grey no data), with the data year in the legend. Quick-pick chips under the search show the 5 countries below 90% access with the best data coverage, chosen automatically. Flags are bundled SVGs (flag-icons), so they work offline on Windows.
 
 | Tab | What it shows |
 |---|---|
-| Profile | The country's 2–3 most distinctive facts, chosen automatically from world percentiles and 20-year changes |
-| Twins | Peer playbook: the 3 closest historical peers, each badged Turnaround or Stagnated by a data rule, in 3 lines (match, biggest change, result). "Use [Peer]'s playbook →" sets the plan split from the best turnaround peer with a documented heuristic. Click a peer for a full comparison |
-| Plan | Invest a share of resource income; instant presets (Peer Playbook, Balanced, Power, Mobility, Growth; each sector 10–50%, precomputed and cached per country); four sectors each show capital deployed, yearly return and payback; optional fuel price reform (freed subsidy, inflation, net household cost after rebates) and solar sourcing (Tier-1 OEM import vs local assembly JV) |
-| Stress | 500 historical bootstrap futures first; single macro shocks behind a toggle |
-| Model | Supervised learning: LightGBM trained on the country panel, SHAP explanation, honest out-of-sample accuracy |
+| Profile | Electricity access (total, urban, rural), clean share, best solar (NASA POWER `ALLSKY_SFC_SW_DWN`) and best 50 m wind (`WS50M`) with site names, "High solar potential" / "Promising wind" badges, and the yearly budget (1% of GDP + 10% of resource income, both editable) |
+| Peers | Countries that started within ±15 points of this country's access (below 95%) and then gained ≥10 points or reached 95% in 10 years, matched by DTW on electricity features. Each in 3 lines; "Use [Peer]'s playbook →" sets the mix |
+| Plan | Recommendation banner, solar / wind / grid & storage split, four result cards (solar MW, wind MW and turbines, km of lines and MWh of storage, access and clean share in 10 years) |
+| Stress | 500 budget futures from the country's own GDP and resource-income history, plus "Budget cut 30%", "Costs run over budget +25%", "Construction delay 2 years" |
+| Model | The supervised impact model (LightGBM + SHAP) for "if nothing changes", with honest out-of-sample accuracy |
 
-Countries are colored by electricity access tier (red below 60% critical, amber 60–90% struggling, slate 90%+ connected), with offline SVG flags. **Ask Nahda** (bottom right) answers questions through the backend (`POST /api/advisor`): Gemini with Google Search grounding, then Gemini without search, then Claude if `ANTHROPIC_API_KEY` is set, then an offline answer from app data; keys stay in `backend/.env`. The timeline at the bottom recolors every country by electricity access from 1990 to 10 years ahead (projected years tinted gold; the selected country follows your plan). Press **`** for the hidden System log of live API calls with timings. **Pre-feasibility brief** produces a one-page Markdown/PDF summary from the current state. Search lists **Revitalization targets** first (rule in the tooltip).
+**Ask Nahda** (bottom right) answers through the backend (`POST /api/advisor`) with Gemini and Google Search grounding, falling back to Gemini without search, then Claude if `ANTHROPIC_API_KEY` is set, then an instant offline answer from app data. Keys stay in `backend/.env`; set `GEMINI_MODEL` there to change the model.
 
-## Models (honest numbers)
+## How the plan works (all editable estimates)
 
-| | Method | Result |
-|---|---|---|
-| Impact model | LightGBM predicting the share of the remaining electricity gap closed in 10 years (bounded 0–1), explained with SHAP in percentage points | Trained on start years 1990–2003, tested on 2013–2015 (no overlap). All countries: MAE 3.1 pts vs 6.5 for "no change", R² 0.62. Below 95% access: MAE 7.3 pts vs 15.2, R² 0.22 |
-| Twins | Dynamic time warping over 5-year paths of 6 standardized indicators; twins within 10× in population | Best match per country, weighted forecast with range |
-| Optimizer | Grid search over 4-sector splits (5% then 1% steps), one objective weight set per preset | Power = fastest access; Mobility = rail corridor; Growth = non-oil returns (rail + tourism & industry; solar's return is still oil income); Resilience = savings; Balanced = all four equally, each sector ≥10%. Always ≥90% of planned spending in ≥80% of futures |
-| Stress test | Block bootstrap (3-year blocks) of the country's own resource-income changes | 500 futures |
-
-The impact model cannot predict declines (access fell in 3.6% of training windows; treated as no progress).
+- Solar MWh = MW × best-site sunlight × 365 × performance ratio. Wind capacity factor ≈ 0.087 × wind speed − 0.278 (capped 0–50%).
+- New people get power only where a new line reaches them (km × homes per km × household size) and new generation can supply them (MWh ÷ use per person).
+- Solar and wind are variable, never baseload: at most 60% of demand counts as clean without seasonal storage; storage covers gaps.
+- Recommendation: solar and wind share generation in proportion to each resource vs its threshold (no wind below 5 m/s); grid & storage gets the share that balances lines against generation, at least 20%. A peer whose rural access rose fastest adds 10 points to grid & storage; a peer whose clean share rose adds 5 to generation.
 
 ## Run it (two terminals)
 
@@ -45,31 +39,19 @@ cd frontend
 npm.cmd run dev
 ```
 
-Setup on a new machine: `pip install -r backend/requirements.txt`, then `npm install` in `frontend/`. Data and trained models are cached locally; nothing calls an external service at runtime. Refresh data with `python fetch_data.py`, retrain with `python -m ml.train` (prints accuracy).
+Setup on a new machine: `pip install -r backend/requirements.txt`, then `npm install` in `frontend/`. Refresh electricity data with `python fetch_data.py --electricity-only` (urban/rural access and NASA sun/wind at several points per country, concurrent with strict timeouts).
 
 ## Tests
 
-- Backend: `cd backend && python -m pytest` (24 tests: four-sector costs/returns/payback, Balanced funds all four, rebates change household cost but not inflation, rail freight relief only after the corridor is complete, twin differences from data, solar output, IRR/NPV/payback, Libya payback 5–9 years, DTW, twins validity and population limit, money conservation, optimizer constraint, households cap and consistency with clean share, SHAP adds up in points, bounded predictions, signatures differ, resource detection)
-- Frontend: `cd frontend && npm test` (9 tests: number formatting)
-
-## Structure
-
-```
-backend/   main.py (FastAPI, typed Pydantic responses), model.py (plan, solar, rail, futures), signature.py (country facts),
-           notes.py, ml/ (twins.py, impact.py, optimize.py, train.py, models/), tests/, fetch_data.py, data/
-frontend/  React + TypeScript + Tailwind + react-globe.gl + Recharts; src/lib/format.ts is the only number formatter
-```
+- Backend: `cd backend && python -m pytest` (21 tests, including grid ≥ 20%, no wind below 5 m/s, access needs both lines and generation, shocks never help, budget parts add up, peers meet the rule)
+- Frontend: `cd frontend && npm test` (number formatting)
 
 ## Data
 
-World Bank (WDI bulk files, all countries, 1990–2025; each value shown with its latest available year), NASA POWER sunlight, Natural Earth outlines. Twin comparisons and the fuel reform use extra World Bank indicators (NE.GDI.FTOT.ZS, BX.KLT.DINV.WD.GD.ZS, NV.IND.MANF.ZS, TX.VAL.FUEL.ZS.UN, NE.CON.PRVT.CD, EG.USE.PCAP.KG.OE; `python fetch_data.py --trade-only`); missing values show as "no data". Gas and forest rents were unavailable from the World Bank at build time, so they are derived together as total rents minus oil, minerals and coal.
+World Bank (access total/urban/rural, clean share, GDP, population, electricity use, resource rents), NASA POWER (sunlight and 50 m wind), Natural Earth outlines. Wind values are point averages at 50 m; turbine sites need detailed local studies.
 
-## Estimates vs data
+## Archive
 
-Rail and tourism & industry returns, solar sourcing premiums and jobs, and the fuel reform parameters are editable planning assumptions, labelled "(estimate)" in the app. The current pump price is a generic placeholder to set per country (the World Bank pump-price file did not match known prices, so it is not used). Fuel use per person defaults to World Bank energy use per person × a road-fuel share (estimate). Household spending for the inflation estimate is World Bank NE.CON.PRVT.CD where available.
-
-## Limitations
-
-New power is assumed to reach homes through the grid (transmission and connections not modelled); storage is not costed; rail benefits are not modelled; household sizes are approximate regional averages (editable); governance is described, not modelled; the fuel reform ignores changes in how much fuel people buy.
+The earlier four-sector plan (power, transportation, tourism, savings, fuel price reform) is in `archive/four-sector/`, not used by the app.
 
 Illustrative planning model built on public data. Not investment advice.

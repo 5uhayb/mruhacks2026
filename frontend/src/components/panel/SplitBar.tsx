@@ -3,13 +3,12 @@ import { SECTORS, type Sector, type Split } from '../../api'
 import { formatMoney } from '../../lib/format'
 
 export const SECTOR_STYLE: Record<Sector, { label: string; color: string }> = {
-  solar: { label: 'Power (Solar & Grid)', color: '#f2a93b' },
-  rail: { label: 'Transportation', color: '#9a7a45' },
-  industry: { label: 'Tourism & Economy', color: '#5ec8e5' },
-  fund: { label: 'Savings fund', color: '#4b5468' },
+  solar: { label: 'Solar farms', color: '#f2a93b' },
+  wind: { label: 'Wind farms', color: '#5ec8e5' },
+  grid: { label: 'Grid & storage', color: '#8a94a8' },
 }
 
-/** One bar split four ways; drag the round handles to move money between neighbouring sectors */
+/** One bar split three ways; drag the round handles to move money between neighbouring buckets */
 export default function SplitBar({ split, setSplit, amounts }: { split: Split; setSplit: (s: Split) => void; amounts: Split | null }) {
   const bar = useRef<HTMLDivElement>(null)
   const total = SECTORS.reduce((s, k) => s + split[k], 0) || 1
@@ -57,7 +56,7 @@ export default function SplitBar({ split, setSplit, amounts }: { split: Split; s
           />
         ))}
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-[0.8rem]">
+      <div className="mt-3 grid grid-cols-3 gap-x-3 gap-y-1 text-[0.8rem]">
         {SECTORS.map((k, i) => (
           <div key={k} className="flex items-baseline gap-1.5">
             <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: SECTOR_STYLE[k].color }} />

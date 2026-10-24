@@ -28,7 +28,7 @@ api.interceptors.response.use(
   },
 )
 
-export const SECTORS = ['solar', 'rail', 'industry', 'fund'] as const
+export const SECTORS = ['solar', 'wind', 'grid'] as const
 export type Sector = (typeof SECTORS)[number]
 export type Split = Record<Sector, number>
 export type Point = { year: number; value: number }
@@ -39,12 +39,11 @@ export type WorldCountry = {
   iso2: string | null
   name: string
   hover: string
-  resource: string
-  target: string[]
   access: Record<string, number>
   projected: Record<string, number>
 }
-export type World = { years: number[]; countries: WorldCountry[]; target_rule: string; meta: Meta }
+export type QuickPick = { iso3: string; iso2: string; name: string; access: number; year: number; coverage: number }
+export type World = { years: number[]; countries: WorldCountry[]; quick_picks: QuickPick[]; quick_pick_rule: string; meta: Meta }
 
 export type Fact = { text: string; kind: string; unit: string; value: number; year: number; percentile: number; sparkline: Point[] }
 export type Factor = { label: string; value: number | null; effect: number }
@@ -63,29 +62,22 @@ export type ModelCard = {
   first_year: number
   last_year: number
 }
+export type Dated = { value: number | null; year: number | null }
+export type Site = { site: string; lat: number; lon: number; solar: number; wind: number }
+export type BestSite = { value: number; site: string; lat: number; lon: number }
+export type Budget = {
+  gdp: { base: number; year: number | null; share: number; amount: number }
+  resource: { base: number; years: [number, number] | null; word: string; share: number; amount: number }
+  total: number
+}
 export type Country = {
   iso3: string
   name: string
-  resource: string
-  classification: { label: string; rules: string; rents_pct_gdp: number }
+  tier: string
   facts: Fact[]
-  stats: {
-    population: number
-    electricity_access_pct: number | null
-    electricity_access_pct_year: number | null
-    renewable_electricity_pct: number | null
-    renewable_electricity_pct_year: number | null
-    gdp_per_capita_usd: number | null
-  }
-  revenue: {
-    avg?: number
-    years?: number[]
-    per_person?: number
-    low?: { year: number; revenue: number }
-    high?: { year: number; revenue: number }
-    range_years?: [number, number]
-  }
-  sun: { site?: string; value?: number; oslo?: number }
+  profile: { access: Dated; urban: Dated; rural: Dated; clean: Dated; resources: { solar: BestSite | null; wind: BestSite | null; sites: Site[] } }
+  badges: { label: string; rule: string }[]
+  budget: Budget
   outlook: {
     year: number
     access_now: number
@@ -102,164 +94,74 @@ export type Country = {
   meta: Meta
 }
 
-export type Twin = {
+export type Peer = {
   iso3: string
   country: string
   year: number
   similarity: number
-  population_then: number
-  access_then: number
   access: number[]
-  gdp_per_capita: number[]
-  turnaround: boolean
-  oil_share_then: number | null
-  /** The single biggest shift over the next 10 years, as a fact from the data */
+  urban_gain: number | null
+  rural_gain: number | null
+  clean_gain: number | null
   changed: string
+  result: string
   access_change: number
-  income_change: number
 }
-export type ChangeSpan = { from: number | null; to: number | null; from_year: number | null; to_year: number | null }
-export type TwinCompare = {
-  twin: string
-  twin_name: string
-  twin_years: [number, number]
-  own_years: [number, number]
-  rows: { key: string; label: string; unit: string; source: string; twin: ChangeSpan; own: ChangeSpan; score: number | null }[]
-  differences: string[]
-  meta: Meta
-}
-export type Twins = {
+export type Playbook = { peer: string; peer_name: string; peer_year: number; split: Split; line: string }
+export type Peers = {
   year: number
   access_now: number
-  gdp_now: number
-  population_now: number
-  twins: Twin[]
-  forecast: { year: number; access: number; access_low: number; access_high: number; gdp: number; gdp_low: number; gdp_high: number }[]
-  windows_searched: number
+  peers: Peer[]
   rule: string
+  playbook: Playbook | null
+  playbook_rule: string
+  windows_searched: number
   meta: Meta
 }
 
-export type YearRow = {
-  year: number
-  fund: number
-  solar_mw: number
-  homes: number
-  household_coverage: number
-  rail_km: number
-  renewable_pct: number
-  access_pct: number
-}
-export type ShockSide = YearRow & { shortfall_total: number; fully_funded: boolean }
+export type YearRow = { year: number; access_pct: number; clean_pct: number; solar_mw: number; wind_mw: number; line_km: number; storage_mwh: number }
+export type ShockSide = Omit<YearRow, 'year'>
 export type Simulation = {
-  share: number
-  base_revenue: number
-  pool: number
-  per_person: number
+  budget: Budget
+  split: Split
   split_amounts: Split
-  start: { access: number; clean: number; access_year: number | null; clean_year: number | null }
+  recommendation: { split: Split; banner: string; solar: number; wind: number }
+  start: { access: number; access_year: number | null; clean: number; clean_year: number | null; urban: Dated; rural: Dated }
   years: YearRow[]
-  months_covered: number
-  access_full_year: number | null
-  sites: { site: string; lat: number; lon: number; solar: number; mw: number }[]
-  homes: { households: number; home_kwh: number; coverage: number; homes_powered: number; every_home: boolean; left_over_share: number }
-  rail: {
-    from: string | null
-    to: string | null
-    route_km: number
-    coords: [number, number][] | null
-    funded_km: number
-    km_per_year: number
-    annual_pool: number
-    years_to_complete: number | null
-    complete_year: number | null
+  cards: {
+    solar: { mw: number; capex: number; payback: number | null; mwh: number; site: BestSite }
+    wind: { mw: number; turbines: number; capex: number; payback: number | null; capacity_factor: number; mw_per_turbine: number; site: BestSite }
+    grid: { km: number; storage_mwh: number; capex: number; households: number }
+    access: { value: number; clean: number; people: number }
   }
-  low_resource: { is_low: boolean; rents_pct_gdp: number }
+  limit: 'lines' | 'generation'
+  sites: { solar: BestSite; wind: BestSite }
   household_size: number
-  /** Assumptions whose default depends on the country (value actually used) */
-  country_defaults: Record<string, number>
-  sectors: Record<Sector, SectorEconomics>
-  supply: { choice: Supply; label: string; capex_mult: number; build_years: number; jobs: number; local_value: number; note: string }
-  reform: ReformResult | null
-  shocks: Record<string, {
-    label: string
-    detail: string
-    before: ShockSide
-    after: ShockSide
-    note: string
-    path: { year: number; access_pct: number; renewable_pct: number }[]
-  }>
+  shocks: Record<string, { label: string; detail: string; before: ShockSide; after: ShockSide; note: string; path: { year: number; access_pct: number; clean_pct: number }[] }>
   futures: {
     runs: number
     history_years: string
-    resource: string
     access_paths: number[][]
     clean_paths: number[][]
     access_p10: number
     access_p50: number
     access_p90: number
     clean_p10: number
-    p_funded: number
+    budget_p10: number
+    budget_p90: number
   }
   meta: Meta
 }
-export type SectorEconomics = { capex: number; annual_return: number; payback: number | null; basis: string }
-export type Supply = 'import' | 'local'
-export type ReformInput = { target_price: number; phase_years: number; rebate_share: number; add_to_plan: boolean }
-export type ReformResult = ReformInput & {
-  price_now: number
-  price: number[]
-  freed: number[]
-  kept: number[]
-  added_to_plan: number[]
-  cpi: number[]
-  cost_per_home_month: number[]
-  rebate_per_home_month: number[]
-  net_per_home_month: number[]
-  rail_relief: boolean[]
-  peak_cpi: number
-  warning: boolean
-  spending: { value: number; year: number | null; source: string }
-  litres_per_person: number
-  litres_source: { energy_kgoe: number; year: number; source: string } | null
-}
-export const PRESETS = ['playbook', 'balanced', 'power', 'mobility', 'growth'] as const
-export type Preset = (typeof PRESETS)[number]
-export type PresetResult = {
-  split: Split
-  label: string
-  /** One sentence, at most 15 words */
-  line: string
-  p_funded?: number
-  feasible?: boolean
-  note?: string
-  peer?: string
-  peer_name?: string
-  peer_year?: number
-  rule?: string
-}
-export type Presets = { presets: Partial<Record<Preset, PresetResult>>; playbook_peer: string | null; plans_tested: number; share: number; meta: Meta }
 export type AssumptionSpec = { group: string; value: number; min: number; max: number; unit: string; label: string; note: string }
+export type SimulateInput = { iso3: string; split: Split | null; assumptions: Record<string, number> }
 
-export type SimulateInput = {
-  iso3: string
-  share: number
-  split: Split
-  assumptions: Record<string, number>
-  supply: Supply
-  reform: ReformInput | null
-}
+export type AdvisorKind = 'mix' | 'peer' | 'siting'
+export type AdvisorAnswer = { answer: string; sources: { title: string; url: string }[]; mode: 'web' | 'model' | 'offline'; label: string; meta: Meta }
 
 export const getWorld = async () => (await api.get<World>('/world')).data
 export const getCountry = async (iso3: string) => (await api.get<Country>(`/country/${iso3}`)).data
-export const getTwins = async (iso3: string) => (await api.get<Twins>(`/twins/${iso3}`)).data
-export const getTwinCompare = async (iso3: string, twin: string) => (await api.get<TwinCompare>(`/twins/${iso3}/compare/${twin}`)).data
+export const getPeers = async (iso3: string) => (await api.get<Peers>(`/peers/${iso3}`)).data
 export const simulate = async (input: SimulateInput) => (await api.post<Simulation>('/simulate', input)).data
-export const getPresets = async (iso3: string, share: number, supply: Supply) =>
-  (await api.get<Presets>(`/presets/${iso3}`, { params: { share, supply } })).data
 export const getAssumptions = async () => (await api.get<Record<string, AssumptionSpec>>('/assumptions')).data
-
-export type AdvisorKind = 'peers' | 'split' | 'reform'
-export type AdvisorAnswer = { answer: string; sources: { title: string; url: string }[]; mode: 'web' | 'model' | 'offline'; label: string; meta: Meta }
-export const askAdvisor = async (input: Omit<SimulateInput, 'assumptions'> & { question: string; kind: AdvisorKind | null }) =>
+export const askAdvisor = async (input: SimulateInput & { question: string; kind: AdvisorKind | null }) =>
   (await api.post<AdvisorAnswer>('/advisor', input, { timeout: 45000 })).data
