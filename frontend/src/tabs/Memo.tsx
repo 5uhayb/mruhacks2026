@@ -2,7 +2,7 @@ import { useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ask, type PlanInput } from '../api'
-import { Note, Panel } from '../components/ui'
+import { Panel } from '../components/ui'
 
 export default function Memo({ markdown, input, country }: { markdown: string | null; input: PlanInput; country: string }) {
   const [question, setQuestion] = useState('')
@@ -51,7 +51,7 @@ export default function Memo({ markdown, input, country }: { markdown: string | 
           <p className="text-dim num">GENERATING…</p>
         )}
       </Panel>
-      <Panel title="Ask the Analyst" right="GEMINI · USES ONLY THE MEMO'S NUMBERS" className="col-span-4">
+      <Panel title="Ask a question" right="AI · USES ONLY THESE NUMBERS" className="col-span-4">
         <form
           className="flex gap-1"
           onSubmit={(e) => {
@@ -72,7 +72,7 @@ export default function Memo({ markdown, input, country }: { markdown: string | 
         </form>
         {answer != null && (
           <div className="border-amb mt-3 border-l pl-2">
-            <Note>{answer || '…'}</Note>
+            <p className="text-[13px] leading-snug">{answer || '…'}</p>
           </div>
         )}
       </Panel>

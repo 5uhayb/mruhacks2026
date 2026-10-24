@@ -264,7 +264,17 @@ def delay(spending: np.ndarray, years: int) -> np.ndarray:
     return out
 
 
-def context(iso3: str) -> dict:
+def main_route(iso3: str, a: dict) -> dict:
+    """Rail goal: link the first two cities listed for the country (capital and next major city)."""
+    _, sites, _ = load()
+    s = sites[sites.iso3 == iso3]
+    if len(s) < 2:
+        return {"from": None, "to": None, "km": 1000.0}
+    x, y = s.iloc[0], s.iloc[1]
+    return {"from": x.site, "to": y.site, "km": haversine_km(x.lat, x.lon, y.lat, y.lon) * a["rail_route_factor"]}
+
+
+def context(iso3: str, a: dict | None = None) -> dict:
     lat = latest(iso3)
     best = sites_for(iso3).iloc[0]
     return {
@@ -274,6 +284,7 @@ def context(iso3: str) -> dict:
         "kwh_per_person": lat["kwh_per_person"] or 1500.0,
         "base_revenue": revenue_baseline(iso3)["avg"],
         "best_site": best.site,
+        "route": main_route(iso3, a or params()),
     }
 
 
@@ -323,7 +334,7 @@ def simulate(ctx: dict, a: dict, share: float, split, solar_kwh: float,
     connected = np.minimum(mwh * 1000 / a["kwh_per_new_person"], unconnected)
     access = ctx["access0"] + connected / pop * 100
 
-    terms = resilience_terms(ctx, fund, solar_value + returns, renew, access)
+    goals = goal_progress(ctx, fund, renew, access, rail_km)
     return {
         "revenue": revenue, "pool": pool, "fund": fund, "fund_returns": returns, "fund_draw": draw,
         "shortfall": shortfall, "solar_spend": solar_spend, "rail_spend": rail_spend,
@@ -333,26 +344,40 @@ def simulate(ctx: dict, a: dict, share: float, split, solar_kwh: float,
         "capital_deployed": np.cumsum(solar_spend + rail_spend, axis=1),
         "value_created": np.cumsum(solar_value + returns, axis=1),
         "fully_funded": shortfall.sum(axis=1) <= 1e-6 * max(committed, 1),
-        **terms,
+        **goals,
     }
 
 
-def resilience_terms(ctx: dict, fund, new_income, renew, access) -> dict:
-    """Fiscal Resilience Score, 0-100: average of four terms, each scaled 0-1."""
-    rev = max(ctx["base_revenue"], 1.0)
-    terms = {
-        "term_buffer": np.minimum(1.0, fund / rev),  # 1 full year of resource revenue saved = 1
-        "term_new_income": np.minimum(1.0, np.maximum(0.0, new_income) / (0.25 * rev)),  # non-oil income = 25% of revenue
-        "term_clean_power": np.minimum(1.0, renew / 50),  # half of electricity renewable = 1
-        "term_access": np.asarray(access) / 100,
+GOAL_KEYS = ["goal_power", "goal_clean", "goal_savings", "goal_rail"]
+
+
+def goals_meta(ctx: dict) -> list[dict]:
+    r = ctx["route"]
+    rail = f"{r['from']} → {r['to']} ({r['km']:,.0f} km)" if r["from"] else f"{r['km']:,.0f} km of rail"
+    return [
+        {"key": "goal_power", "label": "Power for everyone", "target": "100% have electricity"},
+        {"key": "goal_clean", "label": "Clean electricity", "target": "50% from renewables"},
+        {"key": "goal_savings", "label": "Crash-proof savings", "target": "1 year of oil money saved"},
+        {"key": "goal_rail", "label": "Rail link", "target": rail},
+    ]
+
+
+def goal_progress(ctx: dict, fund, renew, access, rail_km) -> dict:
+    """Progress toward each goal, 0-1 (1 = met). goal_score = average, 0-100."""
+    g = {
+        "goal_power": np.asarray(access) / 100,
+        "goal_clean": np.asarray(renew) / 50,
+        "goal_savings": np.asarray(fund) / max(ctx["base_revenue"], 1.0),
+        "goal_rail": np.asarray(rail_km) / ctx["route"]["km"],
     }
-    terms["resilience"] = 100 * sum(terms.values()) / 4
-    return terms
+    g = {k: np.minimum(1.0, v) for k, v in g.items()}
+    g["goal_score"] = 100 * sum(g.values()) / 4
+    return g
 
 
-def resilience_today(ctx: dict) -> dict:
-    t = resilience_terms(ctx, np.zeros(1), np.zeros(1), np.array([ctx["renew0"]]), np.array([ctx["access0"]]))
-    return {k: float(v[0]) for k, v in t.items()}
+def goals_today(ctx: dict) -> dict:
+    g = goal_progress(ctx, np.zeros(1), np.array([ctx["renew0"]]), np.array([ctx["access0"]]), np.zeros(1))
+    return {k: float(v[0]) for k, v in g.items()}
 
 
 def rows(result: dict, i: int = 0) -> list[dict]:
@@ -418,13 +443,13 @@ def percentile_bands(values: np.ndarray) -> list[dict]:
 
 
 def optimize(ctx: dict, a: dict, share: float, solar_kwh: float, current) -> dict:
-    """Split with the best 10th-percentile year-10 resilience across 200 oil futures."""
+    """Split with the best goal score in a bad oil decade (10th percentile of 200 futures)."""
     ratios = oil_scenarios(200)
     rng = np.random.default_rng(7)
 
     def robust(split):
         r = simulate(ctx, a, share, split, solar_kwh, ratios, ratios)
-        return float(np.percentile(r["resilience"][:, -1], 10))
+        return float(np.percentile(r["goal_score"][:, -1], 10))
 
     current = normalize(current)
     best = max([*rng.dirichlet(np.ones(3), 1200), current], key=robust)

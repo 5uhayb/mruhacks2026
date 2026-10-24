@@ -6,13 +6,13 @@ An infrastructure and capital planning terminal for resource-rich countries that
 
 | Tab | What it does |
 |---|---|
-| 1 OVERVIEW | Resource revenue, energy gap, untapped solar potential, peer screener |
-| 2 ALLOCATE | Divert 0–30% of resource revenue across solar / rail / sovereign wealth fund; editable assumptions; capital vs value created |
+| 1 SITUATION | Oil money, people without power, clean electricity, best sunlight, country comparison |
+| 2 PLAN | Choose how much oil money to invest and where; see what you get by year 10 |
 | 3 PROJECTS | Pick a solar site on the map → deal card (CAPEX, output, IRR, NPV, payback); rail cost between two cities |
-| 4 STRESS | Oil −40%, production shutdown, CAPEX +25%, rates +200 bps; 500-run Monte Carlo; Fiscal Resilience Score |
+| 4 STRESS TEST | Shocks and 500 oil futures: which goals survive? |
 | 5 MEMO | One-page plan memo (Markdown download) + ask the analyst (Gemini) |
 
-Keys `1`–`5` switch tabs. Every computed number has a `[?] WHY THIS NUMBER` drill-down.
+A goals bar on every tab tracks 4 goals (power for everyone, 50% clean electricity, 1 year of oil money saved, a rail link) from today to year 10. Keys `1`–`5` switch tabs.
 
 ```
 backend/   main.py (API), model.py (calculations + assumptions), notes.py (analyst notes),

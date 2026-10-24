@@ -9,27 +9,26 @@ import {
   type Deal,
   type Meta,
   type OptimizeResult,
-  type Overview as OverviewData,
-  type Plan,
+  type Overview,
+  type Plan as PlanData,
   type PlanInput,
   type Split,
 } from './api'
-import { Footer } from './components/ui'
-import { money, num, pct, smallPct } from './format'
-import Allocate from './tabs/Allocate'
+import { Footer, GoalBar } from './components/ui'
 import Memo from './tabs/Memo'
-import Overview from './tabs/Overview'
+import Plan from './tabs/Plan'
 import Projects from './tabs/Projects'
+import Situation from './tabs/Situation'
 import Stress from './tabs/Stress'
 
-const TABS = ['Overview', 'Allocate', 'Projects', 'Stress', 'Memo'] as const
+const TABS = ['Situation', 'Plan', 'Projects', 'Stress test', 'Memo'] as const
 const DEFAULT_SPLIT: Split = { solar: 40, rail: 30, fund: 30 }
 
 function App() {
   const [meta, setMeta] = useState<Meta | null>(null)
   const [iso3, setIso3] = useState('LBY')
   const [tab, setTab] = useState(0)
-  const [overview, setOverview] = useState<OverviewData | null>(null)
+  const [overview, setOverview] = useState<Overview | null>(null)
   const [waiting, setWaiting] = useState(false)
 
   const [share, setShare] = useState(0.1)
@@ -38,7 +37,7 @@ function App() {
   const [site, setSite] = useState<string | null>(null)
   const [mw, setMw] = useState(500)
 
-  const [plan, setPlan] = useState<Plan | null>(null)
+  const [plan, setPlan] = useState<PlanData | null>(null)
   const [deal, setDeal] = useState<Deal | null>(null)
   const [memo, setMemo] = useState<string | null>(null)
   const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(null)
@@ -90,14 +89,18 @@ function App() {
   // Number keys 1-5 switch tabs (ignored while typing)
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const t = e.target as HTMLElement
-      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(t.tagName)) return
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return
       const n = Number(e.key)
       if (n >= 1 && n <= 5) setTab(n - 1)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  function selectCountry(code: string) {
+    setIso3(code)
+    setSplit(DEFAULT_SPLIT)
+  }
 
   async function runOptimize() {
     setOptimizing(true)
@@ -118,44 +121,16 @@ function App() {
     )
   }
 
-  const m = Object.fromEntries(overview.metrics.map((x) => [x.key, x]))
   const selectable = new Set(meta.countries.map((c) => c.iso3))
-  const headline: [string, string, string][] = [
-    ['REV 5Y', `${money(overview.revenue.avg)}`, 'Resource revenue, 5-year average of GDP × oil rents (World Bank)'],
-    ['ACCESS', pct(m.electricity_access_pct.value), m.electricity_access_pct.source],
-    ['RENEW ELEC', smallPct(m.renewable_electricity_pct.value), m.renewable_electricity_pct.source],
-    ['GDP/CAP', `$${num(m.gdp_per_capita_usd.value)}`, m.gdp_per_capita_usd.source],
-    ['BEST SUN', `${overview.potential.best_site.toUpperCase()} ${overview.potential.best_solar.toFixed(2)}`, `kWh/m²/day · ${overview.potential.source}`],
-  ]
-
   return (
     <main className="flex min-h-screen flex-col bg-black">
-      <div className="border-line flex items-center gap-5 border-b px-3 py-1.5">
-        <div className="flex items-center gap-2">
-          <select
-            value={iso3}
-            onChange={(e) => {
-              setIso3(e.target.value)
-              setSplit(DEFAULT_SPLIT)
-            }}
-            className="num text-amb border-none !p-0 text-[13px] font-semibold"
-            title="Change country"
-          >
-            {meta.countries.map((c) => (
-              <option key={c.iso3} value={c.iso3}>{c.iso3}</option>
-            ))}
-          </select>
-          <span className="num text-amb text-[13px] font-semibold">
-            {overview.country.toUpperCase()} · RESOURCE ECONOMY
-          </span>
-        </div>
-        {headline.map(([label, value, title]) => (
-          <div key={label} className="flex items-baseline gap-1.5" title={title}>
-            <span className="text-dim text-[10px] tracking-wider">{label}</span>
-            <span className="num text-ink text-[13px]">{value}</span>
-          </div>
-        ))}
-        <div className="num text-dim ml-auto text-[11px]">DATA AS OF {overview.data_as_of}</div>
+      <div className="border-line flex items-center gap-4 border-b px-4 py-2">
+        <span className="num text-amb text-[14px] font-semibold tracking-wider">NAHDA</span>
+        <select value={iso3} onChange={(e) => selectCountry(e.target.value)} className="num text-[13px]">
+          {meta.countries.map((c) => <option key={c.iso3} value={c.iso3}>{c.country}</option>)}
+        </select>
+        <span className="text-dim text-[13px]">Turn oil money into power, rail and savings.</span>
+        <span className="num text-dim ml-auto text-[11px]">DATA AS OF {overview.data_as_of}</span>
       </div>
 
       <nav className="border-line flex border-b">
@@ -163,17 +138,19 @@ function App() {
           <button
             key={t}
             onClick={() => setTab(i)}
-            className={`num border-line border-r px-4 py-1 text-[12px] tracking-wider ${i === tab ? 'bg-amb text-black' : 'text-ink hover:text-amb'}`}
+            className={`num border-line border-r px-5 py-1.5 text-[12px] tracking-wider ${i === tab ? 'bg-amb text-black' : 'hover:text-amb'}`}
           >
             {i + 1} {t.toUpperCase()}
           </button>
         ))}
       </nav>
 
+      {tab !== 4 && <GoalBar plan={plan} />}
+
       <div className="flex-1">
-        {tab === 0 && <Overview data={overview} onSelect={setIso3} selectable={selectable} />}
+        {tab === 0 && <Situation data={overview} onSelect={selectCountry} selectable={selectable} />}
         {tab === 1 && (
-          <Allocate
+          <Plan
             plan={plan}
             share={share}
             setShare={setShare}

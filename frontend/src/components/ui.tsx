@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
-import type { MetricBlock, Point, Why as WhyData } from '../api'
-import { money, num, smallPct } from '../format'
+import type { GoalKey, Plan, Point, Why as WhyData } from '../api'
+import { money, num } from '../format'
 
 export function Panel({ title, right, children, className = '' }: {
   title: string
@@ -9,8 +9,8 @@ export function Panel({ title, right, children, className = '' }: {
   className?: string
 }) {
   return (
-    <section className={`border-line flex flex-col border-r border-b p-3 ${className}`}>
-      <header className="border-line mb-2 flex items-baseline justify-between border-b pb-1">
+    <section className={`border-line flex flex-col border-r border-b p-4 ${className}`}>
+      <header className="mb-3 flex items-baseline justify-between">
         <h2 className="lbl font-medium">{title}</h2>
         {right && <div className="text-dim num text-[11px]">{right}</div>}
       </header>
@@ -19,33 +19,24 @@ export function Panel({ title, right, children, className = '' }: {
   )
 }
 
-export function Read({ children }: { children: ReactNode }) {
-  return <p className="text-dim mt-2 text-[12px] italic leading-snug">{children}</p>
-}
-
-export function Note({ children }: { children: ReactNode }) {
-  return <p className="text-ink text-[13px] leading-snug">{children}</p>
-}
-
-/** Signed comparison, green when good and red when bad */
-export function Delta({ diff, unit, good, vs, digits = 1 }: {
-  diff: number
-  unit: string
-  good: boolean
-  vs?: string
-  digits?: number
+/** One big number with a label and one short line */
+export function Big({ label, value, line, title, size = 'text-[32px]' }: {
+  label: string
+  value: ReactNode
+  line?: ReactNode
+  title?: string
+  size?: string
 }) {
-  const arrow = diff >= 0 ? '▲' : '▼'
   return (
-    <span className={`num text-[12px] ${good ? 'text-up' : 'text-dn'}`}>
-      {arrow} {num(Math.abs(diff), digits)}
-      {unit}
-      {vs && <span className="text-dim"> vs {vs}</span>}
-    </span>
+    <div title={title} className={title ? 'cursor-help' : ''}>
+      <div className="lbl">{label}</div>
+      <div className={`num text-ink leading-tight font-medium ${size}`}>{value}</div>
+      {line && <div className="text-dim mt-1 text-[13px]">{line}</div>}
+    </div>
   )
 }
 
-export function Sparkline({ points, width = 90, height = 22 }: { points: Point[]; width?: number; height?: number }) {
+export function Sparkline({ points, width = 120, height = 28 }: { points: Point[]; width?: number; height?: number }) {
   if (points.length < 2) return null
   const xs = points.map((p) => p.year)
   const ys = points.map((p) => p.value)
@@ -53,116 +44,91 @@ export function Sparkline({ points, width = 90, height = 22 }: { points: Point[]
   const sx = (x: number) => ((x - x0) / (x1 - x0 || 1)) * (width - 2) + 1
   const sy = (y: number) => height - 1 - ((y - y0) / (y1 - y0 || 1)) * (height - 2)
   return (
-    <svg width={width} height={height} className="shrink-0">
-      <polyline
-        points={points.map((p) => `${sx(p.year)},${sy(p.value)}`).join(' ')}
-        fill="none"
-        stroke="#e6e6e6"
-        strokeWidth={1}
-      />
+    <svg width={width} height={height}>
+      <polyline points={points.map((p) => `${sx(p.year)},${sy(p.value)}`).join(' ')} fill="none" stroke="#e6e6e6" strokeWidth={1} />
     </svg>
   )
 }
 
-/** Yearly bars; highlighted years drawn in off-white, others grey */
-export function BarSpark({ values, highlight, height = 48 }: {
-  values: { year: number; value: number }[]
-  highlight: number[]
-  height?: number
-}) {
-  const max = Math.max(...values.map((v) => v.value), 1)
-  return (
-    <div className="flex items-end gap-[3px]" style={{ height }}>
-      {values.map((v) => (
-        <div key={v.year} className="flex flex-1 flex-col items-center" title={`${v.year}: ${money(v.value)}`}>
-          <div
-            style={{ height: Math.max(1, (v.value / max) * (height - 12)), background: highlight.includes(v.year) ? '#e6e6e6' : '#4a4a4a' }}
-            className="w-full"
-          />
-          <span className="num text-dim mt-[2px] text-[8px] leading-none">{String(v.year).slice(2)}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function formatValue(m: MetricBlock): string {
-  if (m.value == null) return '—'
-  if (m.unit === '$') return `$${num(m.value)}`
-  if (m.unit.startsWith('%')) return m.key === 'renewable_electricity_pct' ? smallPct(m.value) : `${num(m.value, 1)}%`
-  return num(m.value, 2)
-}
-
-/** The four-line metric block: label, value + year + sparkline, comparison, analyst note */
-export function Metric({ m, compact = false }: { m: MetricBlock; compact?: boolean }) {
-  return (
-    <div className="border-line border-b py-2 last:border-b-0">
-      <div className="lbl">{m.label}</div>
-      <div className="flex items-center justify-between gap-2">
-        <div title={m.source} className="cursor-help">
-          <span className="num text-ink text-[18px] font-medium">{formatValue(m)}</span>
-          {m.unit === '% GDP' && <span className="text-dim num text-[11px]"> of GDP</span>}
-          <span className="text-dim num ml-2 text-[11px]">{m.year}</span>
-        </div>
-        <Sparkline points={m.sparkline} />
-      </div>
-      {m.compare && (
-        <Delta diff={m.compare.diff} unit={m.compare.unit} good={m.compare.good} vs={m.compare.vs} digits={m.unit === '' ? 2 : 1} />
-      )}
-      {!compact && <Note>{m.note}</Note>}
-    </div>
-  )
-}
-
-/** "?" toggle that explains how a computed number was produced */
-export function Why({ why, label = 'WHY THIS NUMBER' }: { why: WhyData; label?: string }) {
+/** "?" toggle with the method behind a number; hidden by default */
+export function Why({ why }: { why: WhyData }) {
   const [open, setOpen] = useState(false)
   return (
-    <div className="mt-1">
+    <div className="mt-2">
       <button onClick={() => setOpen(!open)} className="num text-dim hover:text-amb text-[11px]">
-        [{open ? '−' : '?'}] {label}
+        [{open ? '−' : '?'}] HOW IS THIS CALCULATED
       </button>
       {open && (
         <div className="border-amb mt-1 space-y-1.5 border-l pl-2 text-[12px]">
-          <p className="text-ink">{why.words}</p>
+          <p>{why.words}</p>
           <p className="num text-amb">{why.symbols}</p>
           <table className="w-full">
             <tbody>
               {why.inputs.map((i) => (
                 <tr key={i.label} className="align-top">
                   <td className="text-dim pr-2 whitespace-nowrap">{i.label}</td>
-                  <td className="num text-ink pr-2 text-right whitespace-nowrap">{i.value}</td>
+                  <td className="num pr-2 text-right whitespace-nowrap">{i.value}</td>
                   <td className="text-dim text-[11px]">{i.source}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <p className="text-ink">
-            <span className="lbl mr-1">Most sensitive:</span>
-            {why.sensitivity}
-          </p>
+          <p><span className="lbl mr-1">Moves it most:</span>{why.sensitivity}</p>
         </div>
       )}
     </div>
   )
 }
 
-/** Compact stat cell for deal cards and readouts */
-export function Cell({ label, value, sub }: { label: string; value: ReactNode; sub?: ReactNode }) {
+/** Display value for a goal, from its 0-1 progress */
+export function goalValue(key: GoalKey, progress: number, plan: Plan): string {
+  if (key === 'goal_power') return `${num(progress * 100)}%`
+  if (key === 'goal_clean') return `${num(progress * 50)}%`
+  if (key === 'goal_savings') return money(progress * plan.base_revenue)
+  return `${num(progress * plan.route_km)} km`
+}
+
+/** The goals strip: today → year 10, with progress bars */
+export function GoalBar({ plan }: { plan: Plan }) {
+  const y10 = plan.years[plan.years.length - 1]
+  const met = plan.goals.filter((g) => y10[g.key] >= 0.999).length
   return (
-    <div className="border-line border-r border-b p-2">
-      <div className="lbl">{label}</div>
-      <div className="num text-ink text-[16px]">{value}</div>
-      {sub && <div className="num text-dim text-[11px]">{sub}</div>}
+    <div className="border-line grid grid-cols-[repeat(4,1fr)_150px] border-b">
+      {plan.goals.map((g) => {
+        const [now, then] = [plan.today[g.key], y10[g.key]]
+        const done = then >= 0.999
+        return (
+          <div key={g.key} className="border-line border-r px-4 py-2.5">
+            <div className="flex items-baseline justify-between">
+              <span className="lbl">{g.label}</span>
+              <span className={`num text-[11px] font-semibold ${done ? 'text-up' : 'text-dim'}`}>{done ? '✓ MET' : `${num(then * 100)}%`}</span>
+            </div>
+            <div className="num mt-0.5 text-[15px]">
+              <span className="text-dim">{goalValue(g.key, now, plan)}</span>
+              <span className="text-dim"> → </span>
+              <span className={done ? 'text-up' : 'text-ink'}>{goalValue(g.key, then, plan)}</span>
+            </div>
+            <div className="relative mt-1.5 h-[5px] bg-[#1a1a1a]">
+              <div className={`absolute h-full transition-all duration-300 ${done ? 'bg-up' : 'bg-ink'}`} style={{ width: `${then * 100}%` }} />
+              <div className="absolute h-full bg-[#4a4a4a]" style={{ width: `${now * 100}%` }} />
+            </div>
+            <div className="text-dim mt-1 text-[11px]">Goal: {g.target}</div>
+          </div>
+        )
+      })}
+      <div className="flex flex-col justify-center px-4">
+        <span className="lbl">Goals met</span>
+        <span className="num text-[26px] leading-none font-medium">{met}<span className="text-dim text-[16px]">/4</span></span>
+        <span className="text-dim num text-[11px]">BY YEAR 10</span>
+      </div>
     </div>
   )
 }
 
 export function Footer() {
   return (
-    <footer className="text-dim border-line border-t px-3 py-1.5 text-[11px]">
-      Illustrative planning model built on public World Bank and NASA data and the assumptions shown. Not investment
-      advice.
+    <footer className="text-dim border-line border-t px-4 py-1.5 text-[11px]">
+      Illustrative model built on public World Bank and NASA data. Not investment advice.
     </footer>
   )
 }
