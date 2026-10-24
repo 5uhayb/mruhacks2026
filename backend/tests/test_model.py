@@ -5,7 +5,6 @@ import pytest
 
 import model
 import signature
-from ml import optimize
 from ml.twins import TwinIndex, dtw_batch, load_panel
 
 
@@ -92,27 +91,6 @@ def test_revenue_scenarios_shape_and_positive():
     assert (f > 0).all()
 
 
-def test_simulation_conserves_money():
-    """Money spent on projects plus what is in the fund never exceeds the money put in plus returns."""
-    a = model.params()
-    ctx = model.context("LBY", a)
-    r = model.simulate(ctx, a, 0.1, {"solar": 35, "rail": 20, "industry": 15, "fund": 30}, 6.5, np.ones((1, model.YEARS)))
-    put_in = r["pool"].sum()
-    spent = r["solar_spend"].sum() + r["rail_spend"].sum() + r["industry_spend"].sum()
-    assert spent + r["fund"][0, -1] <= put_in + r["fund_returns"].sum() + 1
-
-
-def test_presets_respect_bounds_and_funding_rule():
-    """Every preset keeps each sector within 10-50% and stays funded in at least 80% of futures."""
-    a = model.params(iso3="NGA")
-    ctx = model.context("NGA", a)
-    out = optimize.all_presets(ctx, a, 0.1, 6.0, model.revenue_scenarios("NGA", 300))
-    for key, p in out["presets"].items():
-        assert sum(p["split"].values()) == pytest.approx(100, abs=1), key
-        assert all(10 <= v <= 50 for v in p["split"].values()), key
-        assert p["p_funded"] >= optimize.MIN_FUNDED, key
-
-
 # ---------- Signature facts ----------
 
 def test_signatures_differ_between_countries():
@@ -126,80 +104,75 @@ def test_main_resource_detection():
     assert model.main_resource("CHL") == "minerals"
 
 
-def test_homes_powered_never_exceeds_households():
-    """Above 100% coverage the app must say 'every home' and cap the count at the number of households."""
-    import main
+# ---------- Electrification planner ----------
 
-    for iso3 in ["LBY", "NGA", "IRQ", "CAN", "NOR"]:
-        for share in [0.02, 0.1, 0.3]:
-            a = model.params(iso3=iso3)
-            ctx = model.context(iso3, a)
-            r = model.simulate(ctx, a, share, {"solar": 60, "rail": 20, "fund": 20},
-                               float(model.sites_for(iso3).iloc[0].solar_kwh_m2_day), np.ones((1, model.YEARS)))
-            y = model.rows(r)[-1]
-            h = main.homes_summary(ctx, y)
-            assert h["homes_powered"] <= h["households"] + 1e-6, iso3
-            assert h["every_home"] == (y["household_coverage"] >= 1), iso3
-            # Homes and clean share use the same generation and the same national demand
-            clean_added = y["renewable_pct"] - ctx["renew0"]
-            if y["renewable_pct"] < 100:
-                assert clean_added == pytest.approx(y["household_coverage"] * a["residential_share"] * 100, rel=1e-6), iso3
+def _plan(iso3):
+    import electric
+
+    a = electric.params(iso3=iso3)
+    b = electric.budget(iso3, a)
+    return electric, a, electric.context(iso3, a), b
 
 
-# ---------- Four sectors, presets, fuel reform, twins ----------
+def test_recommendation_always_funds_grid_and_follows_resources():
+    import electric
 
-def test_every_sector_reports_cost_return_and_payback():
-    a = model.params(iso3="LBY")
-    ctx = model.context("LBY", a)
-    r = model.simulate(ctx, a, 0.1, {"solar": 25, "rail": 25, "industry": 25, "fund": 25}, 6.5, np.ones((1, model.YEARS)))
-    econ = model.sector_economics(a, r, 6.5)
-    assert set(econ) == set(model.SECTORS)
-    for k in ["solar", "rail", "industry"]:
-        assert econ[k]["capex"] > 0 and econ[k]["annual_return"] > 0 and econ[k]["payback"] > 0, k
-    assert econ["fund"]["annual_return"] > 0
-    # Rail pays nothing before any track is open
-    assert r["rail_value"][0, : int(a["rail_build_years"])].sum() == 0
+    for iso3 in ["NGA", "BEN", "KEN", "COD", "BWA"]:
+        _, a, ctx, b = _plan(iso3)
+        rec = electric.recommend(iso3, a, b["total"])
+        assert sum(rec["split"].values()) == 100
+        assert rec["split"]["grid"] >= electric.MIN_GRID
+        if ctx["wind"] < 5.0:
+            assert rec["split"]["wind"] == 0, iso3
+        assert "baseload" not in rec["banner"]
 
 
-def test_peer_playbook_stays_in_bounds(twin_index):
-    import differences
+def test_recommendation_changes_with_resource_data():
+    import electric
 
-    t = twin_index.find("LBY")
-    base = {"solar": 20, "rail": 40, "industry": 10, "fund": 30}
-    for tw in t["twins"]:
-        pb = differences.playbook(tw, base, 6.5, t["access_now"])
-        assert sum(pb["split"].values()) == 100
-        assert all(10 <= v <= 50 for v in pb["split"].values())
-        assert pb["explanation"].startswith(f"Based on {tw['country']} {tw['year']}")
+    _, a, _, b = _plan("NGA")
+    weak = electric.params({"wind_threshold": 9.0}, "KEN")
+    strong = electric.params({"wind_threshold": 4.0}, "KEN")
+    bk = electric.budget("KEN", weak)["total"]
+    assert electric.recommend("KEN", strong, bk)["split"]["wind"] > electric.recommend("KEN", weak, bk)["split"]["wind"]
 
 
-def test_rebates_lower_household_cost_not_inflation():
-    a = model.params(iso3="LBY")
-    ctx = model.context("LBY", a)
-    none = np.zeros(model.YEARS)
-    low = model.fuel_reform("LBY", ctx, a, 0.6, 5, 0.0, none)
-    high = model.fuel_reform("LBY", ctx, a, 0.6, 5, 0.8, none)
-    assert low["cpi"] == pytest.approx(high["cpi"])
-    assert high["net_per_home_month"][-1] < low["net_per_home_month"][-1]
+def test_access_is_capped_and_needs_both_lines_and_generation():
+    electric, a, ctx, b = _plan("NGA")
+    ones = np.ones((1, electric.YEARS))
+    full = electric.simulate(ctx, a, b["total"], {"solar": 30, "wind": 10, "grid": 60}, ones)
+    assert (full["access_pct"] <= 100).all() and (full["clean_pct"] <= 100).all()
+    no_grid = electric.simulate(ctx, a, b["total"], {"solar": 100, "wind": 0, "grid": 0}, ones)
+    assert no_grid["access_pct"][0, -1] == pytest.approx(ctx["access0"])  # generation without delivery connects no one
+    no_gen = electric.simulate(ctx, a, b["total"], {"solar": 0, "wind": 0, "grid": 100}, ones)
+    assert no_gen["access_pct"][0, -1] == pytest.approx(ctx["access0"])  # lines without power connect no one
 
 
-def test_rail_relief_only_after_corridor_is_complete():
-    a = model.params(iso3="LBY")
-    ctx = model.context("LBY", a)
-    done = np.array([0, 0, 0, 0, 0, 0, 1, 1, 1, 1], dtype=float)
-    without = model.fuel_reform("LBY", ctx, a, 0.6, 5, 0.5, np.zeros(model.YEARS))
-    withrail = model.fuel_reform("LBY", ctx, a, 0.6, 5, 0.5, done)
-    assert withrail["cpi"][:6] == pytest.approx(without["cpi"][:6])
-    assert withrail["cpi"][6] < without["cpi"][6]
+def test_shocks_never_improve_the_plan():
+    electric, a, ctx, b = _plan("BEN")
+    split = electric.recommend("BEN", a, b["total"])["split"]
+    base = electric.simulate(ctx, a, b["total"], split, np.ones((1, electric.YEARS)))["access_pct"][0, -1]
+    for name in electric.SHOCKS:
+        si = electric.shock_inputs(name)
+        after = electric.simulate(ctx, a, b["total"], split, si["factor"], si["capex_mult"], si["extra_delay"])["access_pct"][0, -1]
+        assert after <= base + 1e-9, name
 
 
-def test_twin_differences_come_from_data(twin_index):
-    import differences
+def test_budget_parts_add_up():
+    _, a, _, b = _plan("NGA")
+    assert b["total"] == pytest.approx(b["gdp"]["amount"] + b["resource"]["amount"])
+    assert b["gdp"]["amount"] == pytest.approx(b["gdp"]["base"] * a["budget_gdp_share"])
 
-    t = twin_index.find("IRQ")
-    tw = t["twins"][0]
-    out = differences.compare("IRQ", "Iraq", t["year"], tw["iso3"], tw["country"], tw["year"])
-    assert 1 <= len(out["differences"]) <= 3
-    for r in out["rows"]:
-        if r["twin"]["from"] is not None:
-            assert r["twin"]["from_year"] < r["twin"]["to_year"]
+
+def test_peers_meet_the_selection_rule():
+    from ml.twins import ELECTRIC_FEATURES, PEER_BAND, TwinIndex, load_panel
+
+    ix = TwinIndex.build(load_panel(), ELECTRIC_FEATURES)
+    for iso3 in ["NGA", "BEN", "CMR", "COD"]:
+        out = ix.find_peers(iso3)
+        for p in out["peers"]:
+            start, end = p["access"][0], p["access"][-1]
+            assert p["iso3"] != iso3
+            assert abs(start - out["access_now"]) <= PEER_BAND
+            assert start < 95
+            assert end - start >= 10 or end >= 95

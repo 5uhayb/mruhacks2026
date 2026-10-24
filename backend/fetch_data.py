@@ -290,11 +290,108 @@ def largest_ring_centroid(geometry: dict) -> tuple[float, float]:
     return best[2], best[1]
 
 
+# ---------- Electricity focus: urban/rural access and solar/wind at several points per country ----------
+
+ELECTRICITY_INDICATORS = {
+    "EG.ELC.ACCS.UR.ZS": "urban_access_pct",
+    "EG.ELC.ACCS.RU.ZS": "rural_access_pct",
+}
+
+
+def fetch_electricity() -> pd.DataFrame:
+    """Urban and rural electricity access (World Bank bulk files; 30 s timeout each, skipped if slow)."""
+    import io
+    import zipfile
+
+    rows = []
+    for code, name in ELECTRICITY_INDICATORS.items():
+        try:
+            res = requests.get(f"https://api.worldbank.org/v2/en/indicator/{code}", params={"downloadformat": "csv"}, timeout=30)
+            z = zipfile.ZipFile(io.BytesIO(res.content))
+        except (requests.RequestException, zipfile.BadZipFile) as e:
+            print(f"  {name}: skipped ({type(e).__name__})")
+            continue
+        data = pd.read_csv(z.open(next(f for f in z.namelist() if f.startswith("API_"))), skiprows=4)
+        years = [c for c in data.columns if c.isdigit() and int(c) >= 1990]
+        long = data.melt(id_vars=["Country Code"], value_vars=years, var_name="year", value_name="value").dropna()
+        rows += [{"iso3": r[0], "year": int(r[1]), "indicator": name, "value": float(r[2])} for r in long.itertuples(index=False)]
+        print(f"  {name}: {len(long)} values")
+    return pd.DataFrame(rows).pivot_table(index=["iso3", "year"], columns="indicator", values="value").reset_index()
+
+
+def inside(ring: list, x: float, y: float) -> bool:
+    """Ray casting point-in-polygon."""
+    hit = False
+    for (x1, y1), (x2, y2) in zip(ring, ring[1:]):
+        if (y1 > y) != (y2 > y) and x < (x2 - x1) * (y - y1) / (y2 - y1) + x1:
+            hit = not hit
+    return hit
+
+
+def sample_points(geometry: dict) -> list[tuple[str, float, float]]:
+    """Up to 4 named points inside the country's largest polygon: North, South, East, West of its center.
+    Each starts 35% of the way to the bounding box edge and steps back toward the center until it is inside."""
+    polys = geometry["coordinates"] if geometry["type"] == "MultiPolygon" else [geometry["coordinates"]]
+    ring = max((p[0] for p in polys), key=lambda r: abs(sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in zip(r, r[1:]))))
+    lat0, lon0 = largest_ring_centroid(geometry)
+    xs, ys = [x for x, _ in ring], [y for _, y in ring]
+    out = []
+    for name, dx, dy in [("North", 0, max(ys) - lat0), ("South", 0, min(ys) - lat0), ("East", max(xs) - lon0, 0), ("West", min(xs) - lon0, 0)]:
+        for f in (0.35, 0.25, 0.15):
+            x, y = lon0 + dx * f, lat0 + dy * f
+            if inside(ring, x, y) and (abs(x - lon0) + abs(y - lat0)) > 0.5:
+                out.append((name, round(y, 2), round(x, 2)))
+                break
+    return out
+
+
+def fetch_energy_sites() -> pd.DataFrame:
+    """NASA POWER annual sunlight (ALLSKY_SFC_SW_DWN, kWh/m2/day) and 50 m wind speed (WS50M, m/s) at each
+    country's center plus up to 4 sampled points, fetched concurrently (20 s timeout per point). Hand-picked city
+    sites from sites.csv are kept as they are."""
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+
+    features = json.loads((DATA / "countries.geojson").read_text(encoding="utf-8"))["features"]
+    centers = pd.read_csv(DATA / "country_solar.csv")
+    jobs = []
+    for f in features:
+        iso3 = f["properties"]["ISO_A3"] if f["properties"]["ISO_A3"] != "-99" else f["properties"]["ADM0_A3"]
+        if iso3 in set(centers.iso3):
+            jobs += [(iso3, name, lat, lon) for name, lat, lon in sample_points(f["geometry"])]
+
+    def get(job):
+        iso3, name, lat, lon = job
+        try:
+            res = requests.get("https://power.larc.nasa.gov/api/temporal/climatology/point",
+                               params={"parameters": "ALLSKY_SFC_SW_DWN,WS50M", "community": "RE",
+                                       "latitude": lat, "longitude": lon, "format": "JSON"}, timeout=20)
+            p = res.json()["properties"]["parameter"]
+            return {"iso3": iso3, "site": name, "lat": lat, "lon": lon,
+                    "solar_kwh_m2_day": p["ALLSKY_SFC_SW_DWN"]["ANN"], "wind_50m_ms": p["WS50M"]["ANN"]}
+        except (ValueError, KeyError, requests.RequestException):
+            return None
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        sampled = [r for r in pool.map(get, jobs) if r]
+    print(f"  sampled points: {len(sampled)} of {len(jobs)}")
+    rows = [{"iso3": r.iso3, "site": "Central", "lat": round(r.lat, 2), "lon": round(r.lon, 2),
+             "solar_kwh_m2_day": r.solar_kwh_m2_day, "wind_50m_ms": r.wind_50m_ms} for r in centers.itertuples()]
+    cities = pd.read_csv(DATA / "sites.csv")[["iso3", "site", "lat", "lon", "solar_kwh_m2_day", "wind_50m_ms"]]
+    out = pd.concat([pd.DataFrame(rows + sampled), cities], ignore_index=True)
+    # Only valid NASA values (-999 marks missing)
+    return out[(out.solar_kwh_m2_day > 0) & (out.wind_50m_ms > 0)].reset_index(drop=True)
+
+
 if __name__ == "__main__":
     import sys
 
     if "--meta-only" in sys.argv:
         fetch_country_meta().to_csv(DATA / "country_meta.csv", index=False)
+        sys.exit()
+    if "--electricity-only" in sys.argv:
+        fetch_electricity().to_csv(DATA / "electricity.csv", index=False)
+        fetch_energy_sites().to_csv(DATA / "energy_sites.csv", index=False)
         sys.exit()
     if "--trade-only" in sys.argv:
         fetch_trade().to_csv(DATA / "trade.csv", index=False)

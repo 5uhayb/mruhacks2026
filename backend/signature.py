@@ -134,12 +134,15 @@ def facts(iso3: str) -> list[dict]:
     return out
 
 
-def signature(iso3: str, n: int = 3) -> list[dict]:
-    """The n most distinctive facts, at most one per indicator."""
+ELECTRICITY = {"electricity_access_pct", "renewable_electricity_pct", "kwh_per_person"}
+
+
+def signature(iso3: str, n: int = 3, only: set[str] | None = None) -> list[dict]:
+    """The n most distinctive facts, at most one per indicator (optionally only from `only` indicators)."""
     chosen, used = [], set()
     for f in sorted(facts(iso3), key=lambda f: -f["score"]):
         base = f["indicator"].split(":")[0]
-        if base in used:
+        if base in used or (only and base not in only):
             continue
         chosen.append(f)
         used.add(base)

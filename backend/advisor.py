@@ -13,17 +13,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-GEMINI_MODEL = "gemini-flash-lite-latest"  # answers in ~1s on this account; checked against the models list
+# The newest Flash (gemini-flash-latest) timed out at 40 s on this key; Flash-Lite answers in about 1 s. Override in .env.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
 CLAUDE_MODEL = "claude-sonnet-5-5"
 TIMEOUT_S = 15  # per attempt; search gets 10s so the whole answer stays well under the page timeout
 FOOTER_WEB = "Based on Nahda data + web search"
 FOOTER_MODEL = "Based on Nahda data + model knowledge (web search unavailable)"
 OFFLINE = "Offline answer from Nahda data"
 
-RULES = """You are Nahda's advisor for development finance institutions, NGOs and trade organizations.
+RULES = """You are Nahda's electrification advisor, helping countries below 90% electricity access close the gap.
 Rules:
 - For every statistic about the country or the plan, use ONLY the numbers in the NAHDA DATA block. Never change, round differently, or invent numbers.
-- Use web search only for real-world context: solar suppliers and supply chains, fuel subsidy reform experiences in other countries, tourism and industry opportunities.
+- Use web search only for real-world context: how other countries expanded access, solar and wind deployment experience, grid and storage practice.
+- Solar and wind are variable sources; never call them baseload. Storage and the grid cover gaps.
 - Describe each peer's change exactly as written in NAHDA DATA; do not generalize patterns across peers or claim causes the data does not state.
 - Describe options and evidence; do not tell any government what it must do.
 - Answer in under 120 words, plain language, no headings, at most 4 short bullet points.

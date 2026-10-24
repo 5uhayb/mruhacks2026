@@ -31,6 +31,8 @@ def panel() -> pd.DataFrame:
     path = DATA / "trade.csv"
     if path.exists():
         p = p.merge(pd.read_csv(path), on=["iso3", "year"], how="left")
+    if (DATA / "electricity.csv").exists():
+        p = p.merge(pd.read_csv(DATA / "electricity.csv"), on=["iso3", "year"], how="left")
     for k in INDICATORS:
         if k not in p:
             p[k] = np.nan
