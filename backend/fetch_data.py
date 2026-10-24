@@ -139,9 +139,123 @@ def fetch_oil_prices() -> pd.DataFrame:
     return df.dropna()
 
 
+# Indicators for the machine-learning panel (every country, not just the 11 above)
+PANEL_INDICATORS = {
+    "EG.ELC.ACCS.ZS": "electricity_access_pct",
+    "NY.GDP.PETR.RT.ZS": "oil_rents_pct_gdp",
+    "NY.GDP.PCAP.CD": "gdp_per_capita_usd",
+    "EG.ELC.RNEW.ZS": "renewable_electricity_pct",
+    "SP.URB.TOTL.IN.ZS": "urban_pct",
+    "SP.POP.TOTL": "population",
+    "NE.GDI.TOTL.ZS": "investment_pct_gdp",
+    "NY.GDP.MKTP.CD": "gdp_usd",
+    "NY.GDP.NGAS.RT.ZS": "gas_rents_pct_gdp",
+    "NY.GDP.MINR.RT.ZS": "mineral_rents_pct_gdp",
+    "NY.GDP.COAL.RT.ZS": "coal_rents_pct_gdp",
+    "NY.GDP.FRST.RT.ZS": "forest_rents_pct_gdp",
+    "NY.GDP.TOTL.RT.ZS": "resource_rents_pct_gdp",
+    "EG.USE.ELEC.KH.PC": "kwh_per_person",
+}
+PANEL_KEY_FEATURES = ["electricity_access_pct", "oil_rents_pct_gdp", "gdp_per_capita_usd", "renewable_electricity_pct", "urban_pct"]
+
+
+def fetch_panel() -> pd.DataFrame:
+    """All real countries (aggregates like 'World' removed), 1990-latest.
+    Gaps are forward-filled within each country; rows still missing a key feature are dropped."""
+    import io
+    import zipfile
+
+    # Uses the World Bank's bulk CSV download (one zip per indicator); the JSON API was returning 502s
+    rows, real = [], {}
+    for code, name in PANEL_INDICATORS.items():
+        res = requests.get(f"https://api.worldbank.org/v2/en/indicator/{code}", params={"downloadformat": "csv"}, timeout=180)
+        try:
+            z = zipfile.ZipFile(io.BytesIO(res.content))
+        except zipfile.BadZipFile:
+            print(f"  {name}: not available as bulk CSV, skipped")
+            continue
+        files = z.namelist()
+        data = pd.read_csv(z.open(next(f for f in files if f.startswith("API_"))), skiprows=4)
+        countries = pd.read_csv(z.open(next(f for f in files if f.startswith("Metadata_Country"))))
+        # Aggregates such as "World" or "Arab World" have no region
+        real.update(dict(zip(countries.loc[countries.Region.notna(), "Country Code"], countries.loc[countries.Region.notna(), "TableName"])))
+        years = [c for c in data.columns if c.isdigit() and int(c) >= 1990]
+        long = data.melt(id_vars=["Country Code"], value_vars=years, var_name="year", value_name="value").dropna()
+        long = long[long["Country Code"].isin(real)]
+        rows += [{"iso3": r[0], "year": int(r[1]), "indicator": name, "value": float(r[2])} for r in long.itertuples(index=False)]
+        print(f"  {name}: {len(long)} values")
+    wide = pd.DataFrame(rows).pivot_table(index=["iso3", "year"], columns="indicator", values="value").reset_index()
+    wide.insert(1, "country", wide.iso3.map(real))
+    wide = wide.sort_values(["iso3", "year"])
+    # Gas and forest rents were unavailable (World Bank 502s); the remainder of total rents covers both
+    if "gas_rents_pct_gdp" not in wide or "forest_rents_pct_gdp" not in wide:
+        known = wide[["oil_rents_pct_gdp", "mineral_rents_pct_gdp", "coal_rents_pct_gdp"]].fillna(0).sum(axis=1)
+        wide["gas_forest_rents_pct_gdp"] = (wide.resource_rents_pct_gdp - known).clip(lower=0)
+    # Unfilled copy: every value keeps its true year (used for display and facts)
+    wide.to_csv(DATA / "panel_raw.csv", index=False)
+    cols = [c for c in [*PANEL_INDICATORS.values(), "gas_forest_rents_pct_gdp"] if c in wide]
+    wide["access_observed"] = wide.electricity_access_pct.notna()  # before filling: was this year really measured?
+    wide[cols] = wide.groupby("iso3")[cols].ffill()
+    before = len(wide)
+    wide = wide.dropna(subset=PANEL_KEY_FEATURES)
+    print(f"  panel: {wide.iso3.nunique()} countries, {len(wide)} country-years ({before - len(wide)} dropped for missing key features)")
+    return wide
+
+
+def fetch_country_solar() -> pd.DataFrame:
+    """NASA sunlight and wind at every country's center, so any country can be planned offline."""
+    import json
+
+    features = json.loads((DATA / "countries.geojson").read_text(encoding="utf-8"))["features"]
+    rows = []
+    for f in features:
+        iso3 = f["properties"]["ISO_A3"] if f["properties"]["ISO_A3"] != "-99" else f["properties"]["ADM0_A3"]
+        lat, lon = largest_ring_centroid(f["geometry"])
+        try:
+            res = requests.get("https://power.larc.nasa.gov/api/temporal/climatology/point",
+                               params={"parameters": "ALLSKY_SFC_SW_DWN,WS50M", "community": "RE",
+                                       "latitude": round(lat, 2), "longitude": round(lon, 2), "format": "JSON"}, timeout=60)
+            p = res.json()["properties"]["parameter"]
+        except (ValueError, KeyError, requests.RequestException):
+            print(f"  {iso3}: failed")
+            continue
+        rows.append({"iso3": iso3, "lat": lat, "lon": lon,
+                     "solar_kwh_m2_day": p["ALLSKY_SFC_SW_DWN"]["ANN"], "wind_50m_ms": p["WS50M"]["ANN"]})
+    print(f"  {len(rows)} countries")
+    return pd.DataFrame(rows)
+
+
+def largest_ring_centroid(geometry: dict) -> tuple[float, float]:
+    """Area-weighted centroid of the country's largest polygon (shoelace formula)."""
+    polys = geometry["coordinates"] if geometry["type"] == "MultiPolygon" else [geometry["coordinates"]]
+
+    def area_centroid(ring):
+        a = cx = cy = 0.0
+        for (x1, y1), (x2, y2) in zip(ring, ring[1:]):
+            cross = x1 * y2 - x2 * y1
+            a += cross
+            cx += (x1 + x2) * cross
+            cy += (y1 + y2) * cross
+        return a / 2, (cx / (3 * a) if a else ring[0][0]), (cy / (3 * a) if a else ring[0][1])
+
+    best = max((area_centroid(p[0]) for p in polys), key=lambda t: abs(t[0]))
+    return best[2], best[1]
+
+
 if __name__ == "__main__":
-    print("World Bank indicators...")
-    fetch_world_bank().to_csv(DATA / "countries.csv", index=False)
+    import sys
+
+    if "--solar-only" in sys.argv:
+        fetch_country_solar().to_csv(DATA / "country_solar.csv", index=False)
+        sys.exit()
+
+    if "--panel-only" not in sys.argv:
+        print("World Bank indicators...")
+        fetch_world_bank().to_csv(DATA / "countries.csv", index=False)
+    print("World Bank panel (all countries)...")
+    fetch_panel().to_csv(DATA / "panel.csv", index=False)
+    if "--panel-only" in sys.argv:
+        sys.exit()
     print("NASA POWER solar/wind sites...")
     fetch_sites().to_csv(DATA / "sites.csv", index=False)
     print("Brent oil prices (FRED)...")

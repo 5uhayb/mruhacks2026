@@ -1,142 +1,162 @@
-import { useState, type ReactNode } from 'react'
-import type { GoalKey, Plan, Point, Why as WhyData } from '../api'
-import { money, num } from '../format'
+import { geoCentroid } from 'd3-geo'
+import { Component, useEffect, useRef, useState, type ReactNode } from 'react'
+import type { Point } from '../api'
 
-export function Panel({ title, right, children, className = '' }: {
-  title: string
-  right?: ReactNode
-  children: ReactNode
-  className?: string
-}) {
+/** Keeps one broken section from taking down the whole workspace */
+export class Boundary extends Component<{ children: ReactNode; label: string }, { error: string | null }> {
+  state = { error: null as string | null }
+  static getDerivedStateFromError(e: Error) {
+    return { error: e.message }
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="text-mute p-5 text-[0.85rem]">
+          {this.props.label} failed to render: {this.state.error}{' '}
+          <button className="text-ink underline" onClick={() => this.setState({ error: null })}>Retry</button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+/** Number that eases to each new value (500ms); always lands on the final value even if frames stall */
+export function CountUp({ value, format }: { value: number; format: (v: number) => string }) {
+  const [shown, setShown] = useState(value)
+  const from = useRef(value)
+  useEffect(() => {
+    const start = performance.now()
+    const a = from.current
+    let raf = 0
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / 500)
+      const v = a + (value - a) * (1 - Math.pow(1 - t, 3))
+      setShown(v)
+      from.current = v
+      if (t < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    const done = setTimeout(() => {
+      cancelAnimationFrame(raf)
+      setShown(value)
+      from.current = value
+    }, 650)
+    return () => {
+      cancelAnimationFrame(raf)
+      clearTimeout(done)
+    }
+  }, [value])
+  return <span className="num">{format(shown)}</span>
+}
+
+export function Sparkline({ points, width = 96, height = 26, color = '#e8ecf3' }: { points: Point[]; width?: number; height?: number; color?: string }) {
+  if (points.length < 2) return <svg width={width} height={height} />
+  const xs = points.map((p) => p.year)
+  const ys = points.map((p) => p.value)
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+  const sx = (x: number) => ((x - x0) / (x1 - x0 || 1)) * (width - 4) + 2
+  const sy = (y: number) => height - 2 - ((y - y0) / (y1 - y0 || 1)) * (height - 4)
+  const last = points[points.length - 1]
   return (
-    <section className={`border-line flex flex-col border-r border-b p-4 ${className}`}>
-      <header className="mb-3 flex items-baseline justify-between">
-        <h2 className="lbl font-medium">{title}</h2>
-        {right && <div className="text-dim num text-[11px]">{right}</div>}
-      </header>
+    <svg width={width} height={height} className="shrink-0">
+      <polyline points={points.map((p) => `${sx(p.year)},${sy(p.value)}`).join(' ')} fill="none" stroke={color} strokeWidth={1.25} strokeOpacity={0.85} />
+      <circle cx={sx(last.year)} cy={sy(last.value)} r={2} fill={color} />
+    </svg>
+  )
+}
+
+export function Section({ title, right, children }: { title: string; right?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="border-edge border-b px-5 py-4 last:border-b-0">
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h3 className="label">{title}</h3>
+        {right && <div className="text-mute text-[0.75rem]">{right}</div>}
+      </div>
       {children}
     </section>
   )
 }
 
-/** One big number with a label and one short line */
-export function Big({ label, value, line, title, size = 'text-[32px]' }: {
-  label: string
-  value: ReactNode
-  line?: ReactNode
-  title?: string
-  size?: string
-}) {
+export function Stat({ label, value, sub, accent }: { label: string; value: ReactNode; sub?: ReactNode; accent?: 'gold' | 'cyan' }) {
   return (
-    <div title={title} className={title ? 'cursor-help' : ''}>
-      <div className="lbl">{label}</div>
-      <div className={`num text-ink leading-tight font-medium ${size}`}>{value}</div>
-      {line && <div className="text-dim mt-1 text-[13px]">{line}</div>}
+    <div>
+      <div className="label">{label}</div>
+      <div className={`num mt-1 text-[1.6rem] leading-none ${accent === 'gold' ? 'text-gold' : accent === 'cyan' ? 'text-cyan' : ''}`}>{value}</div>
+      {sub && <div className="text-mute mt-1.5 text-[0.8rem] leading-snug">{sub}</div>}
     </div>
   )
 }
 
-export function Sparkline({ points, width = 120, height = 28 }: { points: Point[]; width?: number; height?: number }) {
-  if (points.length < 2) return null
-  const xs = points.map((p) => p.year)
-  const ys = points.map((p) => p.value)
-  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
-  const sx = (x: number) => ((x - x0) / (x1 - x0 || 1)) * (width - 2) + 1
-  const sy = (y: number) => height - 1 - ((y - y0) / (y1 - y0 || 1)) * (height - 2)
-  return (
-    <svg width={width} height={height}>
-      <polyline points={points.map((p) => `${sx(p.year)},${sy(p.value)}`).join(' ')} fill="none" stroke="#e6e6e6" strokeWidth={1} />
-    </svg>
-  )
+/** Width and height of an element, kept up to date */
+export function useSize<T extends HTMLElement>() {
+  const ref = useRef<T>(null)
+  const [size, setSize] = useState({ width: 0, height: 0 })
+  useEffect(() => {
+    if (!ref.current) return
+    const ro = new ResizeObserver(([e]) => setSize({ width: e.contentRect.width, height: e.contentRect.height }))
+    ro.observe(ref.current)
+    return () => ro.disconnect()
+  }, [])
+  return [ref, size] as const
 }
 
-/** "?" toggle with the method behind a number; hidden by default */
-export function Why({ why }: { why: WhyData }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="mt-2">
-      <button onClick={() => setOpen(!open)} className="num text-dim hover:text-amb text-[11px]">
-        [{open ? '−' : '?'}] HOW IS THIS CALCULATED
-      </button>
-      {open && (
-        <div className="border-amb mt-1 space-y-1.5 border-l pl-2 text-[12px]">
-          <p>{why.words}</p>
-          <p className="num text-amb">{why.symbols}</p>
-          <table className="w-full">
-            <tbody>
-              {why.inputs.map((i) => (
-                <tr key={i.label} className="align-top">
-                  <td className="text-dim pr-2 whitespace-nowrap">{i.label}</td>
-                  <td className="num pr-2 text-right whitespace-nowrap">{i.value}</td>
-                  <td className="text-dim text-[11px]">{i.source}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p><span className="lbl mr-1">Moves it most:</span>{why.sensitivity}</p>
-        </div>
-      )}
-    </div>
-  )
+// ---------- Geography (outlines cached locally in /public) ----------
+
+export type CountryFeature = {
+  type: 'Feature'
+  properties: { ISO_A3: string; ADM0_A3: string; NAME: string }
+  geometry: GeoJSON.Geometry
 }
 
-/** Display value for a goal, from its 0-1 progress */
-export function goalValue(key: GoalKey, progress: number, plan: Plan): string {
-  if (key === 'goal_power') return `${num(progress * 100)}%`
-  if (key === 'goal_clean') return `${num(progress * 50)}%`
-  if (key === 'goal_savings') return money(progress * plan.base_revenue)
-  return `${num(progress * plan.route_km)} km`
+let featuresPromise: Promise<CountryFeature[]> | null = null
+export function loadFeatures(): Promise<CountryFeature[]> {
+  featuresPromise ??= fetch('/countries.geojson').then((r) => r.json()).then((d) => d.features as CountryFeature[])
+  return featuresPromise
 }
 
-/** The goals strip: today → year 10, with progress bars */
-export function GoalBar({ plan }: { plan: Plan }) {
-  const y10 = plan.years[plan.years.length - 1]
-  const met = plan.goals.filter((g) => y10[g.key] >= 0.999).length
-  return (
-    <div className="border-line grid grid-cols-[repeat(4,1fr)_150px] border-b">
-      {plan.goals.map((g) => {
-        const [now, then] = [plan.today[g.key], y10[g.key]]
-        const done = then >= 0.999
-        return (
-          <div key={g.key} className="border-line border-r px-4 py-2.5">
-            <div className="flex items-baseline justify-between">
-              <span className="lbl">{g.label}</span>
-              <span className={`num text-[11px] font-semibold ${done ? 'text-up' : 'text-dim'}`}>{done ? '✓ MET' : `${num(then * 100)}%`}</span>
-            </div>
-            <div className="num mt-0.5 text-[15px]">
-              <span className="text-dim">{goalValue(g.key, now, plan)}</span>
-              <span className="text-dim"> → </span>
-              <span className={done ? 'text-up' : 'text-ink'}>{goalValue(g.key, then, plan)}</span>
-            </div>
-            <div className="relative mt-1.5 h-[5px] bg-[#1a1a1a]">
-              <div className={`absolute h-full transition-all duration-300 ${done ? 'bg-up' : 'bg-ink'}`} style={{ width: `${then * 100}%` }} />
-              <div className="absolute h-full bg-[#4a4a4a]" style={{ width: `${now * 100}%` }} />
-            </div>
-            <div className="text-dim mt-1 text-[11px]">Goal: {g.target}</div>
-          </div>
-        )
-      })}
-      <div className="flex flex-col justify-center px-4">
-        <span className="lbl">Goals met</span>
-        <span className="num text-[26px] leading-none font-medium">{met}<span className="text-dim text-[16px]">/4</span></span>
-        <span className="text-dim num text-[11px]">BY YEAR 10</span>
-      </div>
-    </div>
-  )
+/** Natural Earth marks some ISO codes as -99 (e.g. Norway); fall back to ADM0_A3 */
+export const isoOf = (f: CountryFeature) => (f.properties.ISO_A3 !== '-99' ? f.properties.ISO_A3 : f.properties.ADM0_A3)
+
+export function centroidOf(f: CountryFeature): { lat: number; lng: number } {
+  // Use the largest polygon so countries with far-off islands center on the mainland
+  const g = f.geometry
+  let target: GeoJSON.Geometry = g
+  if (g.type === 'MultiPolygon') {
+    const areas = g.coordinates.map((poly) => Math.abs(ringArea(poly[0])))
+    target = { type: 'Polygon', coordinates: g.coordinates[areas.indexOf(Math.max(...areas))] }
+  }
+  const [lng, lat] = geoCentroid({ type: 'Feature', properties: {}, geometry: target } as never)
+  return { lat, lng }
 }
 
-export function Footer() {
-  return (
-    <footer className="text-dim border-line border-t px-4 py-1.5 text-[11px]">
-      Illustrative model built on public World Bank and NASA data. Not investment advice.
-    </footer>
-  )
+function ringArea(ring: number[][]): number {
+  let a = 0
+  for (let i = 0; i < ring.length - 1; i++) a += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1]
+  return a / 2
 }
 
-export const AXIS = { stroke: '#808080', fontSize: 10, fontFamily: 'IBM Plex Mono', tickLine: false }
-export const GRID = { stroke: '#1a1a1a' }
-export const TOOLTIP = {
-  contentStyle: { background: '#000', border: '1px solid #2a2a2a', fontFamily: 'IBM Plex Mono', fontSize: 11 },
-  labelStyle: { color: '#ffb000' },
-  itemStyle: { color: '#e6e6e6' },
+export function hasWebGL(): boolean {
+  try {
+    const c = document.createElement('canvas')
+    return !!(c.getContext('webgl2') || c.getContext('webgl'))
+  } catch {
+    return false
+  }
 }
+
+// ---------- Colors ----------
+
+const mix = (a: number[], b: number[], t: number) => a.map((v, i) => Math.round(v + (b[i] - v) * Math.max(0, Math.min(1, t))))
+const rgb = (c: number[], alpha = 1) => `rgba(${c[0]},${c[1]},${c[2]},${alpha})`
+const DARK = [20, 26, 40]
+const LIGHT = [112, 124, 148]
+const GOLD = [242, 169, 59]
+
+/** Measured electricity access: near-black (none) to slate grey (everyone), so gold and cyan stand out */
+export const accessColor = (access: number) => rgb(mix(DARK, LIGHT, Math.pow(access / 100, 1.5)))
+/** Projected years: same scale with a faint gold tint, so the future reads differently */
+export const projectedColor = (access: number) => rgb(mix(mix(DARK, LIGHT, Math.pow(access / 100, 1.5)), GOLD, 0.18))
+/** The selected country as the plan reshapes it */
+export const planColor = (access: number, strength: number) => rgb(mix(mix(DARK, LIGHT, Math.pow(access / 100, 1.5)), GOLD, 0.35 + 0.6 * strength))
+export const NO_DATA = 'rgba(16, 21, 31, 1)'

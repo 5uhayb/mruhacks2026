@@ -1,0 +1,14 @@
+{
+ "train_rows": 1622,
+ "test_rows": 392,
+ "train_years": "1990\u20132003",
+ "test_years": "2013\u20132015",
+ "r2": 0.6037197850411011,
+ "mae": 3.3076609466475215,
+ "baseline_no_change_mae": 6.530612244897959,
+ "baseline_average_mae": 7.13482528549862,
+ "countries": 197,
+ "rows": 5923,
+ "first_year": 1990,
+ "last_year": 2025
+}

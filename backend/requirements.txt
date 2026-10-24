@@ -12,3 +12,6 @@ pydantic
 ipykernel
 google-genai
 python-multipart
+lightgbm
+shap
+pytest

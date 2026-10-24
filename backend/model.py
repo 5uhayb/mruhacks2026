@@ -74,15 +74,35 @@ def params(overrides: dict | None = None) -> dict:
 
 @lru_cache
 def load():
-    countries = pd.read_csv(DATA / "countries.csv")
+    """panel: every country, unfilled (each value keeps its true year). sites: hand-picked NASA sites for
+    11 countries. oil: Brent prices. The 11-country file still supplies governance scores."""
+    panel = pd.read_csv(DATA / "panel_raw.csv").sort_values(["iso3", "year"])
     sites = pd.read_csv(DATA / "sites.csv")
     oil = pd.read_csv(DATA / "oil_prices.csv", parse_dates=["date"])
-    return countries, sites, oil
+    return panel, sites, oil
 
 
+@lru_cache
+def extras():
+    governance = pd.read_csv(DATA / "countries.csv")[["iso3", "year", "government_effectiveness", "group"]]
+    solar = pd.read_csv(DATA / "country_solar.csv")
+    return governance, solar
+
+
+@lru_cache(maxsize=None)
 def country_rows(iso3: str) -> pd.DataFrame:
-    countries, _, _ = load()
-    return countries[countries.iso3 == iso3].sort_values("year")
+    """One country's rows (cached; treat as read-only)."""
+    panel, _, _ = load()
+    return panel[panel.iso3 == iso3]
+
+
+def has_sunlight(iso3: str) -> bool:
+    return len(sites_for(iso3)) > 0
+
+
+def known(iso3: str) -> bool:
+    panel, _, _ = load()
+    return iso3 in set(panel.iso3)
 
 
 def series(iso3: str, col: str, years: int | None = None) -> list[dict]:
@@ -92,29 +112,64 @@ def series(iso3: str, col: str, years: int | None = None) -> list[dict]:
     return [{"year": int(y), "value": float(v)} for y, v in s.values]
 
 
+@lru_cache(maxsize=None)
 def latest(iso3: str) -> dict:
+    """Latest measured value and its year, for every indicator (cached; treat as read-only)."""
     df = country_rows(iso3)
-    out = {"iso3": iso3, "country": df.country.iloc[0], "group": df.group.iloc[0]}
-    for col in df.columns.drop(["iso3", "country", "group", "year"]):
+    governance, _ = extras()
+    out = {"iso3": iso3, "country": str(df.country.iloc[0])}
+    for col in df.columns.drop(["iso3", "country", "year"]):
         s = df[["year", col]].dropna()
         out[col] = None if s.empty else float(s[col].iloc[-1])
         out[f"{col}_year"] = None if s.empty else int(s.year.iloc[-1])
+    g = governance[governance.iso3 == iso3].dropna(subset=["government_effectiveness"])
+    out["government_effectiveness"] = float(g.government_effectiveness.iloc[-1]) if len(g) else None
+    out["group"] = str(governance[governance.iso3 == iso3].group.iloc[0]) if iso3 in set(governance.iso3) else None
     return out
 
 
 def sites_for(iso3: str) -> pd.DataFrame:
+    """Hand-picked NASA sites where we have them; otherwise the NASA value at the country's center."""
     _, sites, _ = load()
-    return sites[sites.iso3 == iso3].sort_values("solar_kwh_m2_day", ascending=False)
+    s = sites[sites.iso3 == iso3]
+    if len(s):
+        return s.sort_values("solar_kwh_m2_day", ascending=False)
+    _, solar = extras()
+    c = solar[solar.iso3 == iso3].copy()
+    c["site"] = "Country center"
+    return c
 
 
-# ---------- Resource revenue ----------
+# ---------- Resource income ----------
+
+RESOURCES = {
+    "oil": ("oil_rents_pct_gdp", "oil"),
+    "minerals": ("mineral_rents_pct_gdp", "mineral"),
+    "coal": ("coal_rents_pct_gdp", "coal"),
+    "gas_forest": ("gas_forest_rents_pct_gdp", "gas and forest"),
+}
+
+
+@lru_cache(maxsize=512)
+def main_resource(iso3: str) -> str:
+    """The resource with the largest rents (share of GDP) over the latest 5 years with data."""
+    df = country_rows(iso3)
+    avg = {k: df[col].dropna().tail(5).mean() for k, (col, _) in RESOURCES.items() if col in df}
+    avg = {k: v for k, v in avg.items() if pd.notna(v)}
+    return max(avg, key=avg.get) if avg else "oil"
+
+
+def resource_word(iso3: str) -> str:
+    return RESOURCES[main_resource(iso3)][1]
+
 
 def revenue_history(iso3: str) -> list[dict]:
-    """Resource revenue = GDP x oil rents share, per year (World Bank)."""
-    df = country_rows(iso3).dropna(subset=["gdp_usd", "oil_rents_pct_gdp"])
+    """Resource income = GDP x rents share of the country's main resource, per year (World Bank)."""
+    col = RESOURCES[main_resource(iso3)][0]
+    df = country_rows(iso3).dropna(subset=["gdp_usd", col])
     return [
-        {"year": int(r.year), "gdp_usd": float(r.gdp_usd), "oil_rents_pct": float(r.oil_rents_pct_gdp),
-         "revenue": float(r.gdp_usd * r.oil_rents_pct_gdp / 100)}
+        {"year": int(r.year), "gdp_usd": float(r.gdp_usd), "oil_rents_pct": float(getattr(r, col)),
+         "revenue": float(r.gdp_usd * getattr(r, col) / 100)}
         for r in df.itertuples()
     ]
 
@@ -126,6 +181,7 @@ def revenue_baseline(iso3: str) -> dict:
     worst = min(last10, key=lambda r: r["revenue"])
     best = max(last10, key=lambda r: r["revenue"])
     drops = [(a, b) for a, b in zip(hist, hist[1:]) if a["year"] + 1 == b["year"]]
+    drops = [d for d in drops if d[0]["revenue"] > 0]
     biggest_drop = min(drops, key=lambda d: d[1]["revenue"] / d[0]["revenue"]) if drops else None
     avg = float(np.mean([r["revenue"] for r in last5]))
     return {
@@ -146,7 +202,9 @@ def revenue_baseline(iso3: str) -> dict:
 # ---------- Cost of capital ----------
 
 def discount_rate(iso3: str, a: dict) -> float:
-    ge = latest(iso3)["government_effectiveness"] or 0.0
+    # The World Bank governance score is centered on 0 (world average); used where we lack a country's score
+    ge = latest(iso3)["government_effectiveness"]
+    ge = 0.0 if ge is None else ge
     ge_nor = latest("NOR")["government_effectiveness"]
     return a["base_discount_rate"] + a["risk_premium_per_point"] * max(0.0, ge_nor - ge)
 
@@ -269,9 +327,10 @@ def main_route(iso3: str, a: dict) -> dict:
     _, sites, _ = load()
     s = sites[sites.iso3 == iso3]
     if len(s) < 2:
-        return {"from": None, "to": None, "km": 1000.0}
+        return {"from": None, "to": None, "km": 1000.0, "coords": None}
     x, y = s.iloc[0], s.iloc[1]
-    return {"from": x.site, "to": y.site, "km": haversine_km(x.lat, x.lon, y.lat, y.lon) * a["rail_route_factor"]}
+    return {"from": x.site, "to": y.site, "km": haversine_km(x.lat, x.lon, y.lat, y.lon) * a["rail_route_factor"],
+            "coords": [[float(x.lat), float(x.lon)], [float(y.lat), float(y.lon)]]}
 
 
 def context(iso3: str, a: dict | None = None) -> dict:
@@ -282,7 +341,7 @@ def context(iso3: str, a: dict | None = None) -> dict:
         "access0": lat["electricity_access_pct"] if lat["electricity_access_pct"] is not None else 100.0,
         "renew0": lat["renewable_electricity_pct"] or 0.0,
         "kwh_per_person": lat["kwh_per_person"] or 1500.0,
-        "base_revenue": revenue_baseline(iso3)["avg"],
+        "base_revenue": revenue_baseline(iso3)["avg"] if revenue_history(iso3) else 0.0,
         "best_site": best.site,
         "route": main_route(iso3, a or params()),
     }
@@ -343,7 +402,8 @@ def simulate(ctx: dict, a: dict, share: float, split, solar_kwh: float,
         "renewable_pct": renew, "access_pct": access,
         "capital_deployed": np.cumsum(solar_spend + rail_spend, axis=1),
         "value_created": np.cumsum(solar_value + returns, axis=1),
-        "fully_funded": shortfall.sum(axis=1) <= 1e-6 * max(committed, 1),
+        # "Stays funded": at least 90% of the planned solar and rail spending actually happens
+        "fully_funded": shortfall.sum(axis=1) <= FUNDED_TOLERANCE * committed * YEARS + 1e-6,
         **goals,
     }
 
@@ -387,39 +447,52 @@ def rows(result: dict, i: int = 0) -> list[dict]:
 
 # ---------- Oil price scenarios and shocks ----------
 
-def annual_brent() -> pd.Series:
-    _, _, oil = load()
-    by_year = oil.groupby(oil.date.dt.year).brent_usd
-    return by_year.mean()[by_year.count() == 12]
-
-
-def current_brent() -> float:
-    _, _, oil = load()
-    return float(oil.brent_usd.tail(12).mean())
-
-
-def oil_scenarios(n: int = 500, seed: int = 42) -> np.ndarray:
-    """Oil price paths as a ratio to today's price. Replays real yearly Brent shocks (1988-2025),
-    pulled 30% of the way back toward the 20-year median each year."""
-    brent = annual_brent()
-    shocks = np.log(brent).diff().dropna().to_numpy()
-    shocks -= shocks.mean()
-    start, long_run = np.log(current_brent()), np.log(brent.tail(20).median())
-    draws = np.random.default_rng(seed).choice(shocks, size=(n, YEARS))
-    log_p = np.empty((n, YEARS))
-    prev = np.full(n, start)
+def revenue_scenarios(iso3: str, n: int = 500, block: int = 3, seed: int = 42) -> np.ndarray:
+    """Oil-income paths as a ratio to the 5-year average: '500 futures built from real history'.
+    Block bootstrap: replays random 3-year stretches of the country's own yearly oil-income changes,
+    so booms and crashes keep their real shape. Each year the level drifts 30% back toward normal."""
+    hist = revenue_history(iso3)
+    changes = np.array([np.log(b["revenue"] / a["revenue"]) for a, b in zip(hist, hist[1:])
+                        if b["year"] == a["year"] + 1 and a["revenue"] > 0 and b["revenue"] > 0])
+    if len(changes) < block:
+        return np.ones((n, YEARS))  # too little history to resample: income held steady
+    changes -= changes.mean()  # no built-in trend up or down
+    blocks = np.array([changes[i:i + block] for i in range(len(changes) - block + 1)])
+    rng = np.random.default_rng(seed)
+    draws = blocks[rng.integers(0, len(blocks), size=(n, -(-YEARS // block)))].reshape(n, -1)[:, :YEARS]
+    level = np.zeros(n)
+    out = np.empty((n, YEARS))
     for t in range(YEARS):
-        prev = prev + 0.3 * (long_run - prev) + draws[:, t]
-        log_p[:, t] = prev
-    return np.exp(log_p - start)
+        level = 0.7 * level + draws[:, t]
+        out[:, t] = level
+    return np.exp(out)
+
+
+def revenue_history_years(iso3: str) -> str:
+    hist = revenue_history(iso3)
+    return f"{hist[0]['year']}–{hist[-1]['year']}" if hist else "no"
 
 
 SHOCKS = {
-    "oil_price": {"label": "OIL PRICE −40%", "detail": "Oil and gas prices 40% lower for all 10 years."},
-    "shutdown": {"label": "PRODUCTION SHUTDOWN", "detail": "Output falls 70% for one year (year 1), then recovers."},
-    "capex": {"label": "CAPEX +25%", "detail": "Solar and rail cost 25% more to build."},
-    "rates": {"label": "RATES +200 BPS", "detail": "Cost of capital 2 percentage points higher."},
+    "oil_price": {"label": "Oil price crash", "detail": "Oil and gas prices stay 40% lower for all 10 years."},
+    "shutdown": {"label": "Production shutdown", "detail": "Oil output falls 70% for one year, then recovers."},
+    "capex": {"label": "Costs run over budget", "detail": "Solar farms and rail cost 25% more to build."},
 }
+
+FUNDED_TOLERANCE = 0.10  # a plan stays funded if no more than 10% of planned project spending is missed
+
+SITE_CAP_MW = 2000  # most solar any one site gets in the map view
+
+
+def allocate_sites(iso3: str, total_mw: float) -> list[dict]:
+    """Estimate where solar gets built: sunniest sites first, up to SITE_CAP_MW each (the last site takes the rest)."""
+    sites = list(sites_for(iso3).itertuples())
+    out, left = [], total_mw
+    for i, s in enumerate(sites):
+        mw = left if i == len(sites) - 1 else min(left, SITE_CAP_MW)
+        left -= mw
+        out.append({"site": s.site, "lat": float(s.lat), "lon": float(s.lon), "solar": float(s.solar_kwh_m2_day), "mw": mw})
+    return out
 
 
 def shock_inputs(name: str | None) -> dict:
@@ -442,49 +515,3 @@ def percentile_bands(values: np.ndarray) -> list[dict]:
     return [{"year": t + 1, "p10": float(p10[t]), "p50": float(p50[t]), "p90": float(p90[t])} for t in range(YEARS)]
 
 
-def optimize(ctx: dict, a: dict, share: float, solar_kwh: float, current) -> dict:
-    """Split with the best goal score in a bad oil decade (10th percentile of 200 futures)."""
-    ratios = oil_scenarios(200)
-    rng = np.random.default_rng(7)
-
-    def robust(split):
-        r = simulate(ctx, a, share, split, solar_kwh, ratios, ratios)
-        return float(np.percentile(r["goal_score"][:, -1], 10))
-
-    current = normalize(current)
-    best = max([*rng.dirichlet(np.ones(3), 1200), current], key=robust)
-    for _ in range(2):
-        best = max([*rng.dirichlet(best * 60 + 0.5, 250), best], key=robust)
-    return {"split": dict(zip(SECTORS, (round(float(x), 3) for x in best))),
-            "robust_score": robust(best), "current_robust_score": robust(current)}
-
-
-# ---------- Peer screener ----------
-
-def untapped(best_solar: float, revenue_per_person: float, renew_elec: float) -> float:
-    """Untapped Potential, 0-100: sun quality, money to invest, and how little renewable power exists."""
-    sun = min(max((best_solar - 3) / 4, 0), 1)
-    money = min(revenue_per_person / 2000, 1)
-    gap = 1 - min(renew_elec, 100) / 100
-    return 100 * (sun + money + gap) / 3
-
-
-def peers() -> list[dict]:
-    countries, _, _ = load()
-    out = []
-    for iso3 in countries.iso3.unique():
-        lat = latest(iso3)
-        hist = revenue_history(iso3)
-        rev = float(np.mean([r["revenue"] for r in hist[-5:]])) if hist else 0.0
-        best = sites_for(iso3).iloc[0]
-        per_person = rev / lat["population"]
-        renew = lat["renewable_electricity_pct"] or 0.0
-        out.append({
-            "iso3": iso3, "country": lat["country"], "group": lat["group"],
-            "revenue_avg": rev, "revenue_per_person": per_person,
-            "access_pct": lat["electricity_access_pct"], "renewable_electricity_pct": renew,
-            "best_solar": float(best.solar_kwh_m2_day), "best_site": best.site,
-            "gdp_per_capita": lat["gdp_per_capita_usd"],
-            "untapped": untapped(float(best.solar_kwh_m2_day), per_person, renew),
-        })
-    return sorted(out, key=lambda r: -r["untapped"])

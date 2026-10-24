@@ -1,138 +1,132 @@
-import axios from 'axios'
+import axios, { type InternalAxiosRequestConfig } from 'axios'
+import { log } from './log'
 
-// All requests go to /api/..., which Vite proxies to the FastAPI backend
+// All requests go to /api/..., which Vite proxies to the local FastAPI backend
 export const api = axios.create({ baseURL: '/api' })
+
+// Time every call and write it to the System log, with the server's own description of the work
+api.interceptors.request.use((config: InternalAxiosRequestConfig & { started?: number }) => {
+  config.started = performance.now()
+  return config
+})
+api.interceptors.response.use(
+  (res) => {
+    const cfg = res.config as InternalAxiosRequestConfig & { started?: number }
+    const meta = res.data?.meta as Meta | undefined
+    log({
+      method: (cfg.method ?? 'get').toUpperCase(),
+      path: `/api${cfg.url}`,
+      detail: meta ? `${meta.detail} · ${Math.round(meta.server_ms)}ms server` : 'ok',
+      ms: Math.round(performance.now() - (cfg.started ?? 0)),
+    })
+    return res
+  },
+  (err) => {
+    const cfg = err.config ?? {}
+    log({ method: (cfg.method ?? 'get').toUpperCase(), path: `/api${cfg.url ?? ''}`, detail: err.response?.data?.detail ?? err.message, ms: 0, error: true })
+    return Promise.reject(err)
+  },
+)
 
 export const SECTORS = ['solar', 'rail', 'fund'] as const
 export type Sector = (typeof SECTORS)[number]
 export type Split = Record<Sector, number>
-
 export type Point = { year: number; value: number }
-export type Why = { words: string; symbols: string; inputs: { label: string; value: string; source: string }[]; sensitivity: string }
-export type AssumptionSpec = { value: number; min: number; max: number; unit: string; label: string; note: string }
+export type Meta = { detail: string; server_ms: number }
 
-export type Peer = {
+export type WorldCountry = {
   iso3: string
-  country: string
-  revenue_avg: number
-  access_pct: number | null
-  renewable_electricity_pct: number
-  best_solar: number
-  untapped: number
+  name: string
+  hover: string
+  resource: string
+  access: Record<string, number>
+  projected: Record<string, number>
 }
-export type Meta = {
-  countries: Peer[]
-  assumptions: Record<string, AssumptionSpec>
-  shocks: Record<string, { label: string; detail: string }>
-}
+export type World = { years: number[]; countries: WorldCountry[]; meta: Meta }
 
-export type Site = { site: string; lat: number; lon: number; solar: number; wind: number }
-export type Overview = {
+export type Fact = { text: string; kind: string; value: number; year: number; percentile: number; sparkline: Point[] }
+export type Factor = { label: string; value: number | null; effect: number }
+export type ModelCard = {
+  train_rows: number
+  test_rows: number
+  train_years: string
+  test_years: string
+  r2: number
+  mae: number
+  baseline_no_change_mae: number
+  baseline_average_mae: number
+  countries: number
+  rows: number
+  first_year: number
+  last_year: number
+}
+export type Country = {
   iso3: string
-  country: string
-  data_as_of: number
-  tiles: {
-    oil: { value: number; years: number[]; per_person: number; note: string; source: string; why: Why; history: { year: number; revenue: number }[] }
-    no_power: { value: number; year: number; note: string; source: string; sparkline: Point[] }
-    clean: { value: number; year: number; note: string; source: string; nor: number }
-    sun: { site: string; value: number; note: string; source: string }
+  name: string
+  resource: string
+  facts: Fact[]
+  stats: {
+    population: number
+    electricity_access_pct: number | null
+    electricity_access_pct_year: number | null
+    renewable_electricity_pct: number | null
+    renewable_electricity_pct_year: number | null
+    gdp_per_capita_usd: number | null
   }
-  peers: Peer[]
-  sites: Site[]
+  revenue: { avg?: number; years?: number[]; per_person?: number; low?: { year: number; revenue: number }; high?: { year: number; revenue: number } }
+  sun: { site?: string; value?: number; oslo?: number }
+  outlook: { year: number; access_now: number; change: number; access_in_10: number; factors: Factor[] } | null
+  model_card: ModelCard
+  meta: Meta
 }
 
-export const GOAL_KEYS = ['goal_power', 'goal_clean', 'goal_savings', 'goal_rail'] as const
-export type GoalKey = (typeof GOAL_KEYS)[number]
-export type Goal = { key: GoalKey; label: string; target: string }
-
-export type YearRow = Record<GoalKey | 'goal_score', number> & {
+export type Twin = { iso3: string; country: string; year: number; similarity: number; access_then: number; access: number[]; gdp_per_capita: number[] }
+export type Twins = {
   year: number
-  pool: number
-  fund: number
-  solar_mw: number
-  homes: number
-  rail_km: number
-  renewable_pct: number
-  access_pct: number
+  access_now: number
+  gdp_now: number
+  twins: Twin[]
+  forecast: { year: number; access: number; access_low: number; access_high: number; gdp: number; gdp_low: number; gdp_high: number }[]
+  windows_searched: number
+  meta: Meta
 }
-export type ShockSide = YearRow & { shortfall_total: number; fully_funded: boolean; deal_npv: number }
-export type Band = { year: number; p10: number; p50: number; p90: number }
-export type Plan = {
-  site: string
-  goals: Goal[]
-  route_km: number
-  today: Record<GoalKey | 'goal_score', number>
+
+export type YearRow = { year: number; fund: number; solar_mw: number; homes: number; rail_km: number; renewable_pct: number; access_pct: number }
+export type ShockSide = YearRow & { shortfall_total: number; fully_funded: boolean }
+export type Simulation = {
+  share: number
   base_revenue: number
   pool: number
   per_person: number
   split_amounts: Split
+  start: { access: number; clean: number }
   years: YearRow[]
+  months_covered: number
+  access_full_year: number | null
+  sites: { site: string; lat: number; lon: number; solar: number; mw: number }[]
   shocks: Record<string, { label: string; detail: string; before: ShockSide; after: ShockSide; note: string }>
-  monte_carlo: { runs: number; p_funded: number; p_goal: Record<GoalKey, number>; fund_bands: Band[]; why: Why }
-}
-export type Deal = {
-  site: string
-  solar_kwh: number
-  mw: number
-  capex: number
-  annual_mwh: number
-  homes: number
-  irr: number | null
-  irr_low: number | null
-  irr_high: number | null
-  npv: number
-  discount_rate: number
-  npv_at_nor_rate: number
-  nor_discount_rate: number
-  payback: number | null
-  notes: { building: string; pays: string; breaks: string; same_farm: string }
-  why: Why
-}
-export type Rail = {
-  from: string
-  to: string
-  route_km: number
-  annual_rail_pool: number
-  options: { type: string; cost_min: number; cost_max: number; years_min: number | null; years_max: number | null }[]
-}
-export type OptimizeResult = { split: Split; robust_score: number; current_robust_score: number }
-
-export type PlanInput = {
-  iso3: string
-  share: number
-  split: Split
-  site: string | null
-  mw: number
-  assumptions: Record<string, number>
-}
-
-export const getMeta = async () => (await api.get<Meta>('/meta')).data
-export const getOverview = async (iso3: string) => (await api.get<Overview>(`/overview/${iso3}`)).data
-export const getPlan = async (input: PlanInput) => (await api.post<Plan>('/plan', input)).data
-export const getDeal = async (input: PlanInput) => (await api.post<Deal>('/deal', input)).data
-export const getRail = async (input: PlanInput, origin: string, destination: string) =>
-  (await api.post<Rail>('/rail', { ...input, origin, destination })).data
-export const getMemo = async (input: PlanInput) => (await api.post<{ markdown: string }>('/memo', input)).data.markdown
-export const optimize = async (input: PlanInput) => (await api.post<OptimizeResult>('/optimize', input)).data
-
-/** Streams the analyst's answer, calling onText with the full text so far */
-export async function ask(input: PlanInput, question: string, onText: (text: string) => void) {
-  const res = await fetch('/api/advisor', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...input, question }),
-  })
-  if (!res.ok || !res.body) {
-    const detail = await res.json().then((d) => d.detail).catch(() => null)
-    throw new Error(detail ?? 'Analyst unavailable.')
+  futures: {
+    runs: number
+    history_years: string
+    resource: string
+    access_paths: number[][]
+    clean_paths: number[][]
+    access_p10: number
+    access_p50: number
+    access_p90: number
+    clean_p10: number
+    p_funded: number
   }
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let text = ''
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    text += decoder.decode(value, { stream: true })
-    onText(text)
-  }
+  meta: Meta
 }
+export type Optimized = { split: Split; p_funded: number; access_y10: number; feasible: boolean; plans_tested: number; min_funded: number; meta: Meta }
+export type AssumptionSpec = { value: number; min: number; max: number; unit: string; label: string; note: string }
+
+export type SimulateInput = { iso3: string; share: number; split: Split; assumptions: Record<string, number> }
+
+export const getWorld = async () => (await api.get<World>('/world')).data
+export const getCountry = async (iso3: string) => (await api.get<Country>(`/country/${iso3}`)).data
+export const getTwins = async (iso3: string) => (await api.get<Twins>(`/twins/${iso3}`)).data
+export const simulate = async (input: SimulateInput) => (await api.post<Simulation>('/simulate', input)).data
+export const optimize = async (input: SimulateInput) => (await api.post<Optimized>('/optimize', input)).data
+export const getAssumptions = async () => (await api.get<Record<string, AssumptionSpec>>('/assumptions')).data
