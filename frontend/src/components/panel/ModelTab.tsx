@@ -82,7 +82,7 @@ export default function ModelTab({ country, twins }: { country: Country; twins: 
       <Section title="How accurate is it" right={`Tested on ${m.test_years}, trained on ${m.train_years}`}>
         <div className="space-y-3">
           <Metrics title="All countries" s={m.all}
-            sentence={`On country-years the model never saw, predictions were off by about ${formatNumber(m.all.mae, 1)} points on average, ${formatPct(m.all.error_reduction * 100, 0)} better than assuming nothing changes. R² is helped by the many countries already at 100%, which are easy to predict.`} />
+            sentence={`On unseen years, predictions were off by ${formatNumber(m.all.mae, 1)} points on average, ${formatPct(m.all.error_reduction * 100, 0)} better than assuming no change. R² is helped by the many countries already at 100%, which are easy to predict.`} />
           <Metrics title="Countries below 95% access at the start" s={m.under_95}
             sentence={`Where the forecast matters, the error is larger (${formatNumber(m.under_95.mae, 1)} points) but still ${formatPct(m.under_95.error_reduction * 100, 0)} below assuming no change. The model explains ${formatPct(m.under_95.r2 * 100, 0)} of the variation here: useful, not precise.`} />
         </div>

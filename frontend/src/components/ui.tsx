@@ -173,7 +173,7 @@ const tier = (access: number) => TIERS.find((t) => access >= t.min)!.color as un
 /** Measured electricity access, by tier */
 export const accessColor = (access: number) => rgb(tier(access))
 /** Projected years: same tiers with a faint gold tint, so the future reads differently */
-export const projectedColor = (access: number) => rgb(mix(tier(access), GOLD, 0.25))
+export const projectedColor = (access: number) => rgb(mix(tier(access), GOLD, 0.12))
 /** The selected country as the plan reshapes it */
 export const planColor = (access: number, strength: number) => rgb(mix(tier(access), GOLD, 0.35 + 0.4 * strength))
 export const NO_DATA = '#2A303C'

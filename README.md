@@ -15,12 +15,12 @@ The globe is the app. Click a country (or press **Ctrl K** to search) and a pane
 | Tab | What it shows |
 |---|---|
 | Profile | The country's 2–3 most distinctive facts, chosen automatically from world percentiles and 20-year changes |
-| Twins | Countries that were once on a similar path. Click one to see the 3 biggest differences in what it did over the next 10 years (investment, FDI, manufacturing, fuel exports, rents, clean power, access, income), from World Bank data |
-| Plan | Invest a share of resource income; priority presets (Balanced, Power, Mobility, Growth, Resilience) run the optimizer; four sectors each show capital deployed, yearly return and payback; optional fuel price reform (freed subsidy, inflation, net household cost after rebates) and solar sourcing (Tier-1 OEM import vs local assembly JV) |
+| Twins | Peer playbook: the 3 closest historical peers, each badged Turnaround or Stagnated by a data rule, in 3 lines (match, biggest change, result). "Use [Peer]'s playbook →" sets the plan split from the best turnaround peer with a documented heuristic. Click a peer for a full comparison |
+| Plan | Invest a share of resource income; instant presets (Peer Playbook, Balanced, Power, Mobility, Growth; each sector 10–50%, precomputed and cached per country); four sectors each show capital deployed, yearly return and payback; optional fuel price reform (freed subsidy, inflation, net household cost after rebates) and solar sourcing (Tier-1 OEM import vs local assembly JV) |
 | Stress | 500 historical bootstrap futures first; single macro shocks behind a toggle |
 | Model | Supervised learning: LightGBM trained on the country panel, SHAP explanation, honest out-of-sample accuracy |
 
-The timeline at the bottom recolors every country by electricity access from 1990 to 10 years ahead (projected years tinted gold; the selected country follows your plan). Press **`** for the hidden System log of live API calls with timings. **Pre-feasibility brief** produces a one-page Markdown/PDF summary from the current state. Search lists **Revitalization targets** first (rule in the tooltip).
+Countries are colored by electricity access tier (red below 60% critical, amber 60–90% struggling, slate 90%+ connected), with offline SVG flags. **Ask Nahda** (bottom right) answers questions through the backend (`POST /api/advisor`): Gemini with Google Search grounding, then Gemini without search, then Claude if `ANTHROPIC_API_KEY` is set, then an offline answer from app data; keys stay in `backend/.env`. The timeline at the bottom recolors every country by electricity access from 1990 to 10 years ahead (projected years tinted gold; the selected country follows your plan). Press **`** for the hidden System log of live API calls with timings. **Pre-feasibility brief** produces a one-page Markdown/PDF summary from the current state. Search lists **Revitalization targets** first (rule in the tooltip).
 
 ## Models (honest numbers)
 

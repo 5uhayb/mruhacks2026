@@ -262,4 +262,4 @@ export const getAssumptions = async () => (await api.get<Record<string, Assumpti
 export type AdvisorKind = 'peers' | 'split' | 'reform'
 export type AdvisorAnswer = { answer: string; sources: { title: string; url: string }[]; mode: 'web' | 'model' | 'offline'; label: string; meta: Meta }
 export const askAdvisor = async (input: Omit<SimulateInput, 'assumptions'> & { question: string; kind: AdvisorKind | null }) =>
-  (await api.post<AdvisorAnswer>('/advisor', input, { timeout: 60000 })).data
+  (await api.post<AdvisorAnswer>('/advisor', input, { timeout: 45000 })).data

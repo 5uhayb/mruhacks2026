@@ -7,8 +7,8 @@ and ml/models/; nothing calls an external service at runtime."""
 import json
 import time
 from contextlib import asynccontextmanager
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from functools import lru_cache
-import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -52,9 +52,7 @@ async def lifespan(_: FastAPI):
     simulate(SimulateRequest(iso3="LBY"))
     differences.typical_change()
     compute_presets("LBY", 0.1, "import")
-    # Warm the presets of every revitalization target in the background, so clicking them is instant too
-    threading.Thread(target=lambda: [compute_presets(c.iso3, 0.1, "import") for c in world().countries if c.target],
-                     daemon=True).start()
+    # Other countries' presets are computed (about 1s) the moment the app selects them, then cached
     print(f"Models loaded in {time.time() - start:.1f}s · {len(ML['twins'].windows)} twin windows · Libya preloaded")
     yield
 
@@ -550,6 +548,9 @@ def presets(iso3: str, share: float = 0.10, supply: str = "import"):
 
 # ---------- Ask Nahda (AI advisor) ----------
 
+ADVISOR_POOL = ThreadPoolExecutor(max_workers=2)
+ADVISOR_DEADLINE_S = 20
+
 SECTOR_LABELS = {"solar": "Power", "rail": "Transportation", "industry": "Tourism & Economy", "fund": "Savings"}
 
 
@@ -661,7 +662,11 @@ def ask_advisor(req: AdvisorRequest):
     check(req.iso3)
     start = time.time()
     f = advisor_facts(req)
-    out = advisor.ask(req.question, advisor_data(f))
+    job = ADVISOR_POOL.submit(advisor.ask, req.question, advisor_data(f))
+    try:  # never keep the demo waiting: past the deadline, answer from app data
+        out = job.result(timeout=ADVISOR_DEADLINE_S)
+    except FutureTimeout:
+        out = {"answer": None, "sources": [], "mode": "offline", "label": advisor.OFFLINE, "errors": [f"AI over {ADVISOR_DEADLINE_S}s"]}
     if out["answer"] is None:
         out.update(answer=advisor_offline(req, f), label=advisor.OFFLINE)
     detail = {"web": "Gemini + Google Search", "model": "Gemini (search quota unavailable)", "offline": "offline template"}[out["mode"]]

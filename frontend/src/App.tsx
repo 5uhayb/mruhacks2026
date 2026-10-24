@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   getAssumptions,
   getCountry,
@@ -162,25 +162,13 @@ function App() {
     }
   }, [selected, share, supply, world])
 
-  // Apply a preset: animate the split to it (no network call)
-  const animating = useRef(0)
+  // Apply a preset instantly: the split comes from the cached presets, no network call
   const applyPreset = useCallback((preset: Preset) => {
     const target = presets?.presets[preset]?.split
     if (!target) return
     setActivePreset(preset)
-    const total = SECTORS.reduce((s, k) => s + split[k], 0) || 1
-    const from = Object.fromEntries(SECTORS.map((k) => [k, (split[k] / total) * 100])) as Split
-    const start = performance.now()
-    const id = ++animating.current
-    const step = (now: number) => {
-      if (id !== animating.current) return
-      const t = Math.min(1, (now - start) / 500)
-      const e = 1 - Math.pow(1 - t, 3)
-      setSplit(Object.fromEntries(SECTORS.map((k) => [k, t < 1 ? from[k] + (target[k] - from[k]) * e : target[k]])) as Split)
-      if (t < 1) requestAnimationFrame(step)
-    }
-    requestAnimationFrame(step)
-  }, [presets, split])
+    setSplit({ ...target })
+  }, [presets])
 
   // "Use [Peer]'s playbook →" on the Twins tab
   const applyPlaybook = useCallback(() => {
@@ -251,7 +239,7 @@ function App() {
       )}
 
       {world && (
-        <TimeScrubber years={world.years} year={shownYear} lastMeasured={lastMeasured} setYear={setYear} rightInset={panelWidth}
+        <TimeScrubber years={world.years} year={shownYear} lastMeasured={lastMeasured} setYear={setYear} rightInset={panelWidth || 140}
           plan={selected && sim ? { country: country?.name ?? selected, value: planPath?.[shownYear] ?? null } : null} />
       )}
 

@@ -12,7 +12,9 @@ function localAnswer(kind: AdvisorKind | null, name: string, sim: Simulation | n
   } else if (kind === 'reform' && sim?.reform) {
     const r = sim.reform
     const i = Math.min(r.phase_years, 10) - 1
-    text = `${formatMoney(r.freed[i])}/yr freed, +${(r.peak_cpi * 100).toFixed(1)}% inflation a year during phase-in, ${formatMoney(r.net_per_home_month[i])}/month net per household after ${formatPct(r.rebate_share * 100, 0)} rebates.`
+    text = `${formatMoney(r.freed[i])}/yr freed, +${(r.peak_cpi * 100).toFixed(1)}% inflation a year during phase-in, ${formatMoney(r.net_per_home_month[i])}/month net per household after ${formatPct(r.rebate_share * 100, 0)} rebates. Higher rebates lower the family cost; a longer phase-in lowers inflation.`
+  } else if (kind === 'reform') {
+    text = 'Fuel price reform is off in this plan. Turn it on under Plan → Fuel price reform to see freed subsidy, inflation and the cost to families.'
   } else if (sim) {
     const y = sim.years[sim.years.length - 1]
     text = `By year 10: access ${formatPct(y.access_pct)}, ${Math.round(sim.rail.funded_km)} km of corridor, savings ${formatMoney(y.fund)}.`
