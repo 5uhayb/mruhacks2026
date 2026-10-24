@@ -1,6 +1,7 @@
 """Nahda backend. Run with: uvicorn main:app --reload --port 8000
 
-Serves the data and models to the React workspace. Everything is computed from local files in data/
+Pre-feasibility and capital allocation tool for development finance institutions, NGOs and trade
+organizations. Serves the data and models to the React workspace. Everything is computed from local files in data/
 and ml/models/; nothing calls an external service at runtime."""
 
 import json
@@ -17,6 +18,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+import differences
 import model
 import notes
 import signature
@@ -45,6 +47,7 @@ async def lifespan(_: FastAPI):
     country("LBY")
     twins("LBY")
     simulate(SimulateRequest(iso3="LBY"))
+    differences.typical_change()
     print(f"Models loaded in {time.time() - start:.1f}s · {len(ML['twins'].windows)} twin windows · Libya preloaded")
     yield
 
@@ -265,13 +268,49 @@ def twins(iso3: str):
                  meta=Meta(detail=f"DTW over {t['windows_searched']:,} country-year windows · {len(t['twins'])} matches", server_ms=ms))
 
 
+class TwinCompare(BaseModel):
+    twin: str
+    twin_name: str
+    twin_years: list[int]
+    own_years: list[int]
+    rows: list[dict]
+    differences: list[str]
+    meta: Meta
+
+
+@app.get("/api/twins/{iso3}/compare/{twin}", response_model=TwinCompare)
+def twin_compare(iso3: str, twin: str):
+    """What the twin did in the 10 years after the match vs this country's last 10 years."""
+    check(iso3)
+    start = time.time()
+    t = ML["twins"].find(iso3)
+    match = next((x for x in (t or {}).get("twins", []) if x["iso3"] == twin), None)
+    if match is None:
+        raise HTTPException(404, f"{twin} is not a twin of {iso3}")
+    out = differences.compare(iso3, model.latest(iso3)["country"], t["year"], twin, match["country"], match["year"])
+    have = sum(r["score"] is not None for r in out["rows"])
+    return TwinCompare(**out, meta=Meta(detail=f"{have} of {len(out['rows'])} indicators with data for both · World Bank",
+                                         server_ms=(time.time() - start) * 1000))
+
+
 # ---------- Simulate and optimize ----------
+
+class Reform(BaseModel):
+    """Gradual fuel price reform, an optional extra funding source."""
+    target_price: float = Field(0.60, ge=0.01, le=3.0, description="target pump price, $/L")
+    phase_years: int = Field(5, ge=1, le=10)
+    rebate_share: float = Field(0.5, ge=0, le=1, description="share of freed subsidy returned to households")
+    add_to_plan: bool = True
+
 
 class SimulateRequest(BaseModel):
     iso3: str
     share: float = Field(0.10, ge=0, le=0.3, description="share of resource income invested each year")
-    split: dict[str, float] = {"solar": 40, "rail": 30, "fund": 30}
+    split: dict[str, float] = {"solar": 35, "rail": 20, "industry": 15, "fund": 30}
     assumptions: dict[str, float] = {}
+    supply: str = Field("import", pattern="^(import|local)$")
+    reform: Reform | None = None
+    preset: str = "power"
 
 
 class Simulation(BaseModel):
@@ -289,6 +328,9 @@ class Simulation(BaseModel):
     rail: dict
     low_resource: dict
     household_size: float
+    sectors: dict
+    supply: dict
+    reform: dict | None
     shocks: dict
     futures: dict
     meta: Meta
@@ -306,15 +348,16 @@ def homes_summary(ctx: dict, y: dict) -> dict:
     }
 
 
-def rail_summary(ctx: dict, a: dict, y: dict, rail_pool: float) -> dict:
+def rail_summary(ctx: dict, a: dict, y: dict, rail_pool: float, path: list[dict] | None = None) -> dict:
     """Rail result: km funded by year 10, the corridor it goes toward, and years to finish at this budget."""
     r = ctx["route"]
     km_per_year = rail_pool / a["rail_cost_per_km"] if rail_pool else 0.0
     target = r["km"]
     years = target / km_per_year + a["rail_build_years"] if km_per_year else None
+    done = next((p["year"] for p in path or [] if p["rail_km"] >= target - 1e-6), None)
     return {"from": r["from"], "to": r["to"], "route_km": target, "coords": r["coords"],
             "funded_km": min(y["rail_km"], target), "km_per_year": km_per_year, "annual_pool": rail_pool,
-            "years_to_complete": years}
+            "years_to_complete": years, "complete_year": done}
 
 
 def year10(result: dict, i: int = 0) -> dict:
@@ -332,18 +375,31 @@ def simulate(req: SimulateRequest):
     ctx = model.context(req.iso3, a)
     split = model.normalize(req.split)
     kwh = float(model.sites_for(req.iso3).iloc[0].solar_kwh_m2_day)
+    rf = req.reform
+    # Subsidy savings kept by the state (after household rebates) can be added to the plan's pool
+    extra = ((1 - rf.rebate_share) * model.reform_savings(ctx, a, rf.target_price, rf.phase_years)
+             if rf and rf.add_to_plan else np.zeros(model.YEARS))
+    run = lambda rev, fuel=None, capex=1.0: model.simulate(ctx, a, req.share, split, kwh, rev, fuel, capex,  # noqa: E731
+                                                          supply=req.supply, extra=extra)
 
-    base = model.simulate(ctx, a, req.share, split, kwh, np.ones((1, model.YEARS)))
+    base = run(np.ones((1, model.YEARS)))
     rows = model.rows(base)
     y = rows[-1]
     pool = req.share * ctx["base_revenue"]
     word = model.resource_word(req.iso3)
+    rail = rail_summary(ctx, a, y, (pool + float(extra.mean())) * split[1], rows)
+    reform = None
+    if rf:
+        done = np.array([float(r["rail_km"] >= ctx["route"]["km"] - 1e-6) for r in rows])
+        reform = {**model.fuel_reform(req.iso3, ctx, a, rf.target_price, rf.phase_years, rf.rebate_share, done),
+                  **rf.model_dump(), "price_now": a["fuel_price_now"], "added_to_plan": extra.tolist()}
+    sup = model.supply_terms(a, req.supply)
 
     before = year10(base)
     shocks = {}
     for name, spec in model.SHOCKS.items():
         si = model.shock_inputs(name)
-        shocked = model.simulate(ctx, a, req.share, split, kwh, si["rev_factor"], si["fuel_mult"], si["capex_mult"])
+        shocked = run(si["rev_factor"], si["fuel_mult"], si["capex_mult"])
         after = year10(shocked)
         label = spec["label"].replace("Oil", word.capitalize()) if name == "oil_price" else spec["label"]
         path = [{"year": r["year"], "access_pct": r["access_pct"], "renewable_pct": r["renewable_pct"]} for r in model.rows(shocked)]
@@ -351,7 +407,7 @@ def simulate(req: SimulateRequest):
                         "note": notes.shock(name, before, after, req.iso3)}
 
     futures = model.revenue_scenarios(req.iso3, 500)
-    mc = model.simulate(ctx, a, req.share, split, kwh, futures)
+    mc = run(futures)
     clean10, access10 = mc["renewable_pct"][:, -1], mc["access_pct"][:, -1]
     history = model.revenue_history_years(req.iso3)
     ms = (time.time() - start) * 1000
@@ -365,9 +421,14 @@ def simulate(req: SimulateRequest):
         months_covered=y["fund"] / (ctx["base_revenue"] / 12) if ctx["base_revenue"] else 0,
         access_full_year=next((r["year"] for r in rows if r["access_pct"] >= 99.95), None),
         sites=model.allocate_sites(req.iso3, y["solar_mw"]), shocks=shocks,
-        homes=homes_summary(ctx, y), rail=rail_summary(ctx, a, y, pool * split[1]),
+        homes=homes_summary(ctx, y), rail=rail,
         low_resource={"is_low": classify(req.iso3)["rents_pct_gdp"] < 5, "rents_pct_gdp": classify(req.iso3)["rents_pct_gdp"]},
         household_size=a["household_size"],
+        sectors=model.sector_economics(a, base, kwh, req.supply),
+        supply={"choice": req.supply, "label": model.SUPPLY[req.supply], "capex_mult": sup["capex_mult"],
+                "build_years": sup["build_years"], "jobs": y["local_jobs"], "local_value": y["local_value"],
+                "note": "PV modules are sourced via certified international OEMs on both routes."},
+        reform=reform,
         futures={
             "runs": len(futures), "history_years": history, "resource": word,
             "access_paths": np.round(mc["access_pct"], 2).tolist(), "clean_paths": np.round(mc["renewable_pct"], 2).tolist(),
@@ -386,22 +447,63 @@ class Optimized(BaseModel):
     feasible: bool
     plans_tested: int
     min_funded: float
+    preset: str
+    preset_label: str
+    rationale: str
     meta: Meta
+
+
+def rationale(req: SimulateRequest, best: dict, ctx: dict, a: dict, kwh: float, futures: np.ndarray) -> str:
+    """One sentence on why the preset chose this split, built from the model's own results."""
+    s = best["split"]
+    r = model.simulate(ctx, a, req.share, model.normalize(s), kwh, futures, supply=req.supply)
+    med = lambda k: float(np.median(r[k][:, -1]))  # noqa: E731
+    word = model.resource_word(req.iso3)
+    route = ctx["route"]
+    econ = model.sector_economics(a, r, kwh, req.supply)
+    months = med("fund") / (ctx["base_revenue"] / 12) if ctx["base_revenue"] else 0
+    p = best["p_funded"]
+    lead = "" if best["feasible"] else "No split keeps spending on track in 80% of futures at this level, so this is the most robust one. "
+    if req.preset == "power":
+        body = (f"Puts {s['solar']}% into solar, the fastest way to connect people here: {med('access_pct'):.0f}% have electricity by year 10 "
+                f"in the median future." if ctx["access0"] < 99 else
+                f"Puts {s['solar']}% into solar: access is already {ctx['access0']:.1f}%, so the gain is cleaner power, "
+                f"{med('renewable_pct'):.1f}% clean by year 10 in the median future.")
+    elif req.preset == "mobility":
+        km = min(med("rail_km"), route["km"])
+        body = (f"Puts {s['rail']}% into transport: {km:,.0f} of {route['km']:,.0f} km of rail open by year 10"
+                + (", the full corridor; more rail money would sit idle, so the rest goes elsewhere." if km >= route["km"] - 1 else "."))
+    elif req.preset == "growth":
+        body = (f"Puts {s['industry']}% into tourism and non-oil industry, the highest non-oil return per dollar under current assumptions "
+                f"({100 / econ['industry']['payback']:.0f}%/yr vs {100 / econ['rail']['payback']:.0f}%/yr for rail): about "
+                f"{notes.money(med('industry_value') + med('rail_value'))} a year of new activity by year 10. Solar's return is "
+                f"{word} sold abroad instead of burned, so it counts toward Power, not Growth.")
+    elif req.preset == "resilience":
+        body = (f"Saves {s['fund']}%: the fund holds about {months:.0f} months of {word} income by year 10, and at least 90% "
+                f"of planned spending happens in {p:.0%} of futures.")
+    else:
+        body = (f"Gives every sector at least 10% and weighs access, rail, non-oil returns and savings equally: "
+                f"{med('access_pct'):.0f}% access, {min(med('rail_km'), route['km']):,.0f} km of rail, "
+                f"{notes.money(med('industry_value') + med('rail_value'))} a year of non-oil activity and {months:.0f} months saved by year 10.")
+    return lead + body
 
 
 @app.post("/api/optimize", response_model=Optimized)
 def optimize(req: SimulateRequest):
-    """Best solar / rail / savings split at the chosen investment level: fastest electricity access,
+    """Best power / transport / industry / savings split at the chosen investment level for a priority preset,
     while at least 90% of planned spending happens in ≥80% of futures."""
     check(req.iso3)
+    if req.preset not in ml_optimize.PRESETS:
+        raise HTTPException(422, f"Unknown preset {req.preset}")
     start = time.time()
     a = model.params(req.assumptions, req.iso3)
     ctx = model.context(req.iso3, a)
     kwh = float(model.sites_for(req.iso3).iloc[0].solar_kwh_m2_day)
-    best = ml_optimize.best_plan(ctx, a, req.share, kwh, model.revenue_scenarios(req.iso3, 500))
+    futures = model.revenue_scenarios(req.iso3, 500)
+    best = ml_optimize.best_plan(ctx, a, req.share, kwh, futures, req.preset, req.supply)
     ms = (time.time() - start) * 1000
-    return Optimized(**best, meta=Meta(
-        detail=f"grid search · {best['plans_tested']} splits × 500 futures · best: {best['access_y10']:.0f}% access, "
+    return Optimized(**best, rationale=rationale(req, best, ctx, a, kwh, futures), meta=Meta(
+        detail=f"{best['preset_label']} · grid search · {best['plans_tested']} splits × 500 futures · "
                f"funded in {best['p_funded']:.0%}", server_ms=ms))
 
 

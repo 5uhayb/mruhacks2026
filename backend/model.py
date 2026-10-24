@@ -9,47 +9,86 @@ import pandas as pd
 
 DATA = Path(__file__).parent / "data"
 YEARS = 10
-SECTORS = ["solar", "rail", "fund"]
+SECTORS = ["solar", "rail", "industry", "fund"]
+PROJECTS = 3  # the first three sectors build things; the last is savings
 BENCHMARKS = ["NOR", "ARE", "BWA"]
 FARM_MW = 500
 
 # Every assumption the model uses: default, range, unit, and what it means. Editable in the app.
 ASSUMPTIONS = {
-    "solar_capex_per_mw": {"value": 800_000, "min": 600_000, "max": 1_100_000, "unit": "$/MW", "label": "Solar build cost",
+    "solar_capex_per_mw": {"group": "Power (solar)", "value": 800_000, "min": 600_000, "max": 1_100_000, "unit": "$/MW", "label": "Solar build cost",
                            "note": "Cost to build 1 MW of utility-scale solar, including grid connection."},
-    "solar_om_per_mw": {"value": 15_000, "min": 8_000, "max": 25_000, "unit": "$/MW/yr", "label": "Solar running cost",
+    "solar_om_per_mw": {"group": "Power (solar)", "value": 15_000, "min": 8_000, "max": 25_000, "unit": "$/MW/yr", "label": "Solar running cost",
                         "note": "Yearly operations and maintenance per MW."},
-    "performance_ratio": {"value": 0.80, "min": 0.75, "max": 0.85, "unit": "ratio", "label": "Performance ratio",
+    "performance_ratio": {"group": "Power (solar)", "value": 0.80, "min": 0.75, "max": 0.85, "unit": "ratio", "label": "Performance ratio",
                           "note": "Share of the sun's energy that reaches the grid after heat, dust and wiring losses."},
-    "degradation": {"value": 0.005, "min": 0.003, "max": 0.008, "unit": "/yr", "label": "Panel degradation",
+    "degradation": {"group": "Power (solar)", "value": 0.005, "min": 0.003, "max": 0.008, "unit": "/yr", "label": "Panel degradation",
                     "note": "Panels lose a little output every year."},
-    "project_life": {"value": 25, "min": 20, "max": 30, "unit": "years", "label": "Project life",
+    "project_life": {"group": "Power (solar)", "value": 25, "min": 20, "max": 30, "unit": "years", "label": "Project life",
                      "note": "How long the farm keeps producing."},
-    "heat_rate": {"value": 9.5, "min": 7.5, "max": 11.0, "unit": "MMBtu/MWh", "label": "Fuel per MWh replaced",
+    "heat_rate": {"group": "Power (solar)", "value": 9.5, "min": 7.5, "max": 11.0, "unit": "MMBtu/MWh", "label": "Fuel per MWh replaced",
                   "note": "Fuel burned per MWh by the plants solar replaces. Older oil and gas units burn more."},
-    "fuel_value": {"value": 9.0, "min": 5.0, "max": 14.0, "unit": "$/MMBtu", "label": "Fuel export value",
+    "fuel_value": {"group": "Power (solar)", "value": 9.0, "min": 5.0, "max": 14.0, "unit": "$/MMBtu", "label": "Fuel export value",
                    "note": "Solar's value is the export value of the oil or gas no longer burned at home. $9/MMBtu is roughly oil at $52/bbl."},
-    "residential_share": {"value": 0.35, "min": 0.15, "max": 0.6, "unit": "ratio", "label": "Homes' share of electricity",
+    "residential_share": {"group": "Homes & demand", "value": 0.35, "min": 0.15, "max": 0.6, "unit": "ratio", "label": "Homes' share of electricity",
                           "note": "Share of a country's electricity used by homes; the rest goes to business and industry. "
                                   "One home's use = electricity per person × people per household × this share."},
-    "household_size": {"value": 4.5, "min": 1.5, "max": 10, "unit": "people", "label": "People per household",
+    "household_size": {"group": "Homes & demand", "value": 4.5, "min": 1.5, "max": 10, "unit": "people", "label": "People per household",
                        "note": "Used to count households (population ÷ this). Default is an approximate regional average; Libya 6."},
-    "kwh_per_new_person": {"value": 1_000, "min": 500, "max": 2_000, "unit": "kWh/yr", "label": "Use per new connection",
+    "kwh_per_new_person": {"group": "Homes & demand", "value": 1_000, "min": 500, "max": 2_000, "unit": "kWh/yr", "label": "Use per new connection",
                            "note": "Electricity needed per person newly connected to the grid."},
-    "rail_cost_per_km": {"value": 15_000_000, "min": 8_000_000, "max": 30_000_000, "unit": "$/km", "label": "Rail build cost",
+    "rail_cost_per_km": {"group": "Transport (rail)", "value": 15_000_000, "min": 8_000_000, "max": 30_000_000, "unit": "$/km", "label": "Rail build cost",
                          "note": "Conventional intercity rail. Used to turn the rail allocation into kilometres."},
-    "rail_route_factor": {"value": 1.25, "min": 1.1, "max": 1.4, "unit": "x", "label": "Route length factor",
+    "rail_route_factor": {"group": "Transport (rail)", "value": 1.25, "min": 1.1, "max": 1.4, "unit": "x", "label": "Route length factor",
                           "note": "Track runs longer than the straight line between two cities."},
-    "base_discount_rate": {"value": 0.06, "min": 0.04, "max": 0.08, "unit": "rate", "label": "Base cost of capital",
+    "base_discount_rate": {"group": "Cost of capital", "value": 0.06, "min": 0.04, "max": 0.08, "unit": "rate", "label": "Base cost of capital",
                            "note": "Yearly return investors need on solar in a low-risk country such as Norway."},
-    "risk_premium_per_point": {"value": 0.025, "min": 0.015, "max": 0.035, "unit": "rate/pt", "label": "Country risk premium",
+    "risk_premium_per_point": {"group": "Cost of capital", "value": 0.025, "min": 0.015, "max": 0.035, "unit": "rate/pt", "label": "Country risk premium",
                                "note": "Extra yearly return investors need per point the World Bank government-effectiveness score sits below Norway's."},
-    "fund_return": {"value": 0.05, "min": 0.03, "max": 0.07, "unit": "rate", "label": "Fund real return",
+    "fund_return": {"group": "Savings fund", "value": 0.05, "min": 0.03, "max": 0.07, "unit": "rate", "label": "Fund real return",
                     "note": "Yearly real return of the savings fund, invested in a diversified global portfolio."},
-    "solar_build_years": {"value": 1, "min": 1, "max": 3, "unit": "years", "label": "Solar build time",
+    "solar_build_years": {"group": "Power (solar)", "value": 1, "min": 1, "max": 3, "unit": "years", "label": "Solar build time",
                           "note": "Years from funding to a working solar farm."},
-    "rail_build_years": {"value": 2, "min": 1, "max": 5, "unit": "years", "label": "Rail build time",
+    "rail_build_years": {"group": "Transport (rail)", "value": 2, "min": 1, "max": 5, "unit": "years", "label": "Rail build time",
                          "note": "Years from funding to an open rail line."},
+    # ---- Every value below is an editable planning estimate, not a measurement ----
+    "rail_benefit_per_km": {"group": "Transport (rail)", "value": 1_200_000, "min": 300_000, "max": 3_000_000, "unit": "$/km/yr",
+                            "label": "Rail economic return (estimate)",
+                            "note": "Yearly freight and passenger cost savings per km of open line. Counts only once a section is open."},
+    "industry_return": {"group": "Tourism & industry", "value": 0.12, "min": 0.04, "max": 0.25, "unit": "rate",
+                        "label": "Tourism & industry return (estimate)",
+                        "note": "Yearly economic value added per dollar invested in tourism and non-oil industry (hotels, logistics, processing)."},
+    "industry_build_years": {"group": "Tourism & industry", "value": 2, "min": 1, "max": 4, "unit": "years",
+                             "label": "Tourism & industry build time (estimate)", "note": "Years from funding to operating businesses."},
+    "import_premium": {"group": "Solar sourcing", "value": 0.08, "min": 0.0, "max": 0.25, "unit": "rate",
+                       "label": "Import tariff & logistics (estimate)",
+                       "note": "Added to solar build cost when modules are imported from certified Tier-1 OEMs."},
+    "local_premium": {"group": "Solar sourcing", "value": 0.15, "min": 0.0, "max": 0.4, "unit": "rate",
+                      "label": "Local assembly cost premium (estimate)",
+                      "note": "Extra build cost of a local assembly joint venture in its early years."},
+    "local_extra_years": {"group": "Solar sourcing", "value": 1, "min": 0, "max": 3, "unit": "years",
+                          "label": "Local assembly lead time (estimate)", "note": "Extra years to set up local assembly before farms are built."},
+    "local_jobs_per_mw": {"group": "Solar sourcing", "value": 3, "min": 1, "max": 10, "unit": "jobs/MW",
+                          "label": "Local assembly jobs (estimate)", "note": "Manufacturing and assembly jobs per MW of solar built."},
+    "local_value_share": {"group": "Solar sourcing", "value": 0.35, "min": 0.1, "max": 0.6, "unit": "ratio",
+                          "label": "Value kept in the country (estimate)", "note": "Share of solar spending that stays in the domestic economy with local assembly."},
+    "fuel_price_now": {"group": "Fuel price reform", "value": 0.15, "min": 0.01, "max": 2.0, "unit": "$/L",
+                       "label": "Current pump price (estimate)",
+                       "note": "Generic placeholder, not this country's price: set it to the actual pump price before relying on the reform numbers."},
+    "fuel_litres_per_person": {"group": "Fuel price reform", "value": 400, "min": 50, "max": 2000, "unit": "L/yr",
+                               "label": "Subsidized fuel use per person (estimate)", "note": "Yearly petrol and diesel sold at the subsidized price, per person."},
+    "household_fuel_share": {"group": "Fuel price reform", "value": 0.4, "min": 0.1, "max": 0.8, "unit": "ratio",
+                             "label": "Households' share of fuel (estimate)", "note": "Share of subsidized fuel bought directly by households; the rest goes to transport and industry."},
+    "pass_through": {"group": "Fuel price reform", "value": 0.7, "min": 0.2, "max": 1.0, "unit": "ratio",
+                     "label": "Business cost pass-through (estimate)", "note": "Share of businesses' higher fuel costs passed on to consumer prices."},
+    "household_spending_share": {"group": "Fuel price reform", "value": 0.6, "min": 0.3, "max": 0.9, "unit": "ratio",
+                                 "label": "Household spending, share of GDP (estimate)",
+                                 "note": "Used only when the World Bank has no household consumption figure for the country."},
+    "rail_freight_relief": {"group": "Fuel price reform", "value": 0.2, "min": 0.0, "max": 0.5, "unit": "ratio",
+                            "label": "Rail freight cost relief (estimate)",
+                            "note": "Share of the passed-on transport cost avoided once the rail corridor is complete (not before)."},
+    "cpi_warning": {"group": "Fuel price reform", "value": 0.03, "min": 0.01, "max": 0.1, "unit": "rate",
+                    "label": "Inflation warning threshold", "note": "Show a warning when the reform adds more than this to consumer prices in a year."},
 }
 
 # Source labels for hover text: (indicator name, code)
@@ -393,42 +432,64 @@ def context(iso3: str, a: dict | None = None) -> dict:
 
 def normalize(split) -> np.ndarray:
     s = np.asarray([split.get(k, 0) for k in SECTORS] if isinstance(split, dict) else split, dtype=float)
-    return s / s.sum() if s.sum() > 0 else np.array([1 / 3] * 3)
+    return s / s.sum() if s.sum() > 0 else np.full(len(SECTORS), 1 / len(SECTORS))
+
+
+SUPPLY = {
+    "import": "Import from Tier-1 licensed OEMs",
+    "local": "Local assembly joint venture",
+}
+
+
+def supply_terms(a: dict, supply: str = "import") -> dict:
+    """Solar sourcing. Both routes use PV modules from certified international OEMs; local assembly costs
+    more and takes longer at first, but creates jobs and keeps part of the spending in the country."""
+    if supply == "local":
+        return {"capex_mult": 1 + a["local_premium"], "build_years": int(a["solar_build_years"] + a["local_extra_years"]),
+                "jobs_per_mw": a["local_jobs_per_mw"], "local_value_share": a["local_value_share"]}
+    return {"capex_mult": 1 + a["import_premium"], "build_years": int(a["solar_build_years"]),
+            "jobs_per_mw": 0.0, "local_value_share": 0.0}
 
 
 def simulate(ctx: dict, a: dict, share: float, split, solar_kwh: float,
-             rev_factor: np.ndarray, fuel_mult=None, capex_mult: float = 1.0) -> dict:
+             rev_factor: np.ndarray, fuel_mult=None, capex_mult: float = 1.0,
+             supply: str = "import", extra: np.ndarray | None = None) -> dict:
     """10-year projection. rev_factor has shape (scenarios, YEARS); all outputs share that shape.
-    The savings fund tops up solar and rail spending in years when revenue falls short of plan."""
+    extra: optional money added to the pool each year (fuel subsidy savings kept for the plan).
+    The savings fund tops up project spending in years when revenue falls short of plan."""
     s = normalize(split)
     S = rev_factor.shape[0]
     fuel_mult = np.ones_like(rev_factor) if fuel_mult is None else fuel_mult
-    base_pool = share * ctx["base_revenue"]
-    project_share = s[0] + s[1]
-    solar_of_projects = s[0] / project_share if project_share > 0 else 0.0
-    committed = base_pool * project_share
+    extra = np.zeros(YEARS) if extra is None else np.asarray(extra, dtype=float)
+    project_share = s[:PROJECTS].sum()
+    of_projects = s[:PROJECTS] / project_share if project_share > 0 else np.zeros(PROJECTS)
+    committed = (share * ctx["base_revenue"] + extra) * project_share  # planned project spending, per year
 
     revenue = ctx["base_revenue"] * rev_factor
-    pool = share * revenue
+    pool = share * revenue + extra
     z = lambda: np.zeros((S, YEARS))  # noqa: E731
-    fund, returns, draw, shortfall, solar_spend, rail_spend = z(), z(), z(), z(), z(), z()
+    fund, returns, draw, shortfall = z(), z(), z(), z()
+    spend = np.zeros((PROJECTS, S, YEARS))
     bal = np.zeros(S)
     for t in range(YEARS):
         earned = bal * a["fund_return"]
         bal = bal + earned
         projects = pool[:, t] * project_share
-        gap = np.maximum(0.0, committed - projects)
+        gap = np.maximum(0.0, committed[t] - projects)
         d = np.minimum(bal, gap)
-        bal = bal - d + pool[:, t] * s[2]
-        spend = projects + d
+        bal = bal - d + pool[:, t] * s[PROJECTS]
         fund[:, t], returns[:, t], draw[:, t], shortfall[:, t] = bal, earned, d, gap - d
-        solar_spend[:, t] = spend * solar_of_projects
-        rail_spend[:, t] = spend * (1 - solar_of_projects)
+        spend[:, :, t] = of_projects[:, None] * (projects + d)[None, :]
+    solar_spend, rail_spend, industry_spend = spend
 
-    solar_mw = np.cumsum(delay(solar_spend, int(a["solar_build_years"])) / (a["solar_capex_per_mw"] * capex_mult), axis=1)
+    sup = supply_terms(a, supply)
+    solar_mw = np.cumsum(delay(solar_spend, sup["build_years"]) / (a["solar_capex_per_mw"] * sup["capex_mult"] * capex_mult), axis=1)
     mwh = solar_mw * solar_kwh * 365 * a["performance_ratio"]
     solar_value = mwh * a["heat_rate"] * a["fuel_value"] * fuel_mult - solar_mw * a["solar_om_per_mw"]
     rail_km = np.cumsum(delay(rail_spend, int(a["rail_build_years"])) / (a["rail_cost_per_km"] * capex_mult), axis=1)
+    rail_value = np.minimum(rail_km, ctx["route"]["km"]) * a["rail_benefit_per_km"]
+    industry_capital = np.cumsum(delay(industry_spend, int(a["industry_build_years"])) / capex_mult, axis=1)
+    industry_value = industry_capital * a["industry_return"]
 
     pop = ctx["population"]
     demand_mwh = pop * ctx["kwh_per_person"] / 1000
@@ -440,17 +501,22 @@ def simulate(ctx: dict, a: dict, share: float, split, solar_kwh: float,
     goals = goal_progress(ctx, fund, renew, access, rail_km)
     return {
         "revenue": revenue, "pool": pool, "fund": fund, "fund_returns": returns, "fund_draw": draw,
-        "shortfall": shortfall, "solar_spend": solar_spend, "rail_spend": rail_spend,
+        "shortfall": shortfall, "solar_spend": solar_spend, "rail_spend": rail_spend, "industry_spend": industry_spend,
         "solar_mw": solar_mw, "solar_mwh": mwh, "solar_value": solar_value,
+        "rail_value": rail_value, "industry_capital": industry_capital, "industry_value": industry_value,
+        "solar_capex": np.cumsum(solar_spend, axis=1), "rail_capex": np.cumsum(rail_spend, axis=1),
+        "industry_capex": np.cumsum(industry_spend, axis=1),
+        "local_jobs": solar_mw * sup["jobs_per_mw"], "local_value": np.cumsum(solar_spend, axis=1) * sup["local_value_share"],
         # Homes powered can never exceed the number of homes; coverage above 1 means power left over for business
         "homes": np.minimum(mwh * 1000 / ctx["home_kwh"], ctx["households"]),
         "household_coverage": mwh / ctx["household_mwh"],
         "rail_km": rail_km,
         "renewable_pct": renew, "access_pct": access,
-        "capital_deployed": np.cumsum(solar_spend + rail_spend, axis=1),
-        "value_created": np.cumsum(solar_value + returns, axis=1),
-        # "Stays funded": at least 90% of the planned solar and rail spending actually happens
-        "fully_funded": shortfall.sum(axis=1) <= FUNDED_TOLERANCE * committed * YEARS + 1e-6,
+        "capital_deployed": np.cumsum(solar_spend + rail_spend + industry_spend, axis=1),
+        "annual_return": solar_value + rail_value + industry_value + returns,
+        "value_created": np.cumsum(solar_value + rail_value + industry_value + returns, axis=1),
+        # "Stays funded": at least 90% of the planned project spending actually happens
+        "fully_funded": shortfall.sum(axis=1) <= FUNDED_TOLERANCE * committed.sum() + 1e-6,
         **goals,
     }
 
@@ -562,3 +628,74 @@ def percentile_bands(values: np.ndarray) -> list[dict]:
     return [{"year": t + 1, "p10": float(p10[t]), "p50": float(p50[t]), "p90": float(p90[t])} for t in range(YEARS)]
 
 
+# ---------- Sector economics ----------
+
+def sector_economics(a: dict, result: dict, solar_kwh: float, supply: str = "import", i: int = 0) -> dict:
+    """Per sector by year 10: capital deployed, yearly economic return ($/yr) and payback (years).
+    Paybacks are unit economics from the editable assumptions, so they do not depend on the split."""
+    sup = supply_terms(a, supply)
+    mw_value = solar_kwh * 365 * a["performance_ratio"] * a["heat_rate"] * a["fuel_value"] - a["solar_om_per_mw"]
+    last = lambda k: float(result[k][i, -1])  # noqa: E731
+    return {
+        "solar": {"capex": last("solar_capex"), "annual_return": last("solar_value"),
+                  "payback": a["solar_capex_per_mw"] * sup["capex_mult"] / mw_value if mw_value > 0 else None,
+                  "basis": "Fuel no longer burned at home, sold abroad, minus running costs"},
+        "rail": {"capex": last("rail_capex"), "annual_return": last("rail_value"),
+                 "payback": a["rail_cost_per_km"] / a["rail_benefit_per_km"],
+                 "basis": "Freight and passenger savings on open track"},
+        "industry": {"capex": last("industry_capex"), "annual_return": last("industry_value"),
+                     "payback": 1 / a["industry_return"],
+                     "basis": "Value added by tourism and non-oil industry once operating"},
+        "fund": {"capex": float(result["pool"][i].sum() - result["solar_capex"][i, -1] - result["rail_capex"][i, -1]
+                                - result["industry_capex"][i, -1]),
+                 "annual_return": last("fund_returns"), "payback": None,
+                 "basis": "Investment returns; the capital stays liquid for bad years"},
+    }
+
+
+# ---------- Fuel price reform ----------
+
+def household_spending(iso3: str, a: dict) -> dict:
+    """Household consumption (World Bank NE.CON.PRVT.CD), latest year; else GDP x an editable share."""
+    path = DATA / "trade.csv"
+    if path.exists():
+        t = pd.read_csv(path)
+        t = t[t.iso3 == iso3].dropna(subset=["household_consumption_usd"])
+        if len(t):
+            return {"value": float(t.household_consumption_usd.iloc[-1]), "year": int(t.year.iloc[-1]),
+                    "source": "World Bank NE.CON.PRVT.CD"}
+    lat = latest(iso3)
+    return {"value": (lat["gdp_usd"] or 0) * a["household_spending_share"], "year": lat["gdp_usd_year"],
+            "source": "estimate: GDP x household spending share"}
+
+
+def reform_price(a: dict, target_price: float, phase_years: int) -> np.ndarray:
+    """Pump price each year, rising in equal steps to the target over the phase-in period."""
+    step = np.minimum(1.0, np.arange(1, YEARS + 1) / max(1, phase_years))
+    return a["fuel_price_now"] + max(0.0, target_price - a["fuel_price_now"]) * step
+
+
+def reform_savings(ctx: dict, a: dict, target_price: float, phase_years: int) -> np.ndarray:
+    """Subsidy freed each year ($/yr) by the higher price, before any change in how much fuel people buy."""
+    return (reform_price(a, target_price, phase_years) - a["fuel_price_now"]) * a["fuel_litres_per_person"] * ctx["population"]
+
+
+def fuel_reform(iso3: str, ctx: dict, a: dict, target_price: float, phase_years: int, rebate_share: float,
+                rail_done: np.ndarray) -> dict:
+    """Freed subsidy, consumer inflation and household cost of a gradual fuel price reform.
+    Rebates lower families' net cost, not inflation. Rail cuts passed-on transport costs only in years
+    after the corridor is complete (rail_done: one 0/1 flag per year)."""
+    freed = reform_savings(ctx, a, target_price, phase_years)
+    business = (1 - a["household_fuel_share"]) * a["pass_through"] * (1 - a["rail_freight_relief"] * rail_done)
+    cost = freed * (a["household_fuel_share"] + business)  # what households end up paying, directly and through prices
+    spending = household_spending(iso3, a)
+    # Yearly inflation added = this year's rise in household cost / household spending
+    cpi = np.diff(np.concatenate([[0.0], cost])) / spending["value"] if spending["value"] else np.zeros(YEARS)
+    rebate = rebate_share * freed
+    per_home = lambda v: (v / ctx["households"] / 12).tolist()  # noqa: E731
+    return {
+        "price": reform_price(a, target_price, phase_years).tolist(), "freed": freed.tolist(), "kept": (freed - rebate).tolist(),
+        "cpi": cpi.tolist(), "cost_per_home_month": per_home(cost), "rebate_per_home_month": per_home(rebate),
+        "net_per_home_month": per_home(cost - rebate), "rail_relief": rail_done.astype(bool).tolist(),
+        "peak_cpi": float(cpi.max()), "warning": bool(cpi.max() > a["cpi_warning"]), "spending": spending,
+    }

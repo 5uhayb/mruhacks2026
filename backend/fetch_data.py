@@ -202,6 +202,40 @@ def fetch_panel() -> pd.DataFrame:
     return wide
 
 
+# Extra indicators for "what did the twins do differently" and fuel price reform. Fetched separately and
+# never required: a slow or missing indicator is skipped and shows as "no data" in the app.
+# (The pump-price series EP.PMP.SGAS.CD was left out: its bulk file does not match known prices.)
+TRADE_INDICATORS = {
+    "NE.GDI.FTOT.ZS": "fixed_investment_pct_gdp",
+    "BX.KLT.DINV.WD.GD.ZS": "fdi_pct_gdp",
+    "NV.IND.MANF.ZS": "manufacturing_pct_gdp",
+    "TX.VAL.FUEL.ZS.UN": "fuel_exports_pct",
+    "NE.CON.PRVT.CD": "household_consumption_usd",
+}
+
+
+def fetch_trade() -> pd.DataFrame:
+    import io
+    import time
+    import zipfile
+
+    rows = []
+    for code, name in TRADE_INDICATORS.items():
+        start = time.time()
+        try:
+            res = requests.get(f"https://api.worldbank.org/v2/en/indicator/{code}", params={"downloadformat": "csv"}, timeout=30)
+            z = zipfile.ZipFile(io.BytesIO(res.content))
+        except (requests.RequestException, zipfile.BadZipFile) as e:
+            print(f"  {name}: skipped ({type(e).__name__})")
+            continue
+        data = pd.read_csv(z.open(next(f for f in z.namelist() if f.startswith("API_"))), skiprows=4)
+        years = [c for c in data.columns if c.isdigit() and int(c) >= 1990]
+        long = data.melt(id_vars=["Country Code"], value_vars=years, var_name="year", value_name="value").dropna()
+        rows += [{"iso3": r[0], "year": int(r[1]), "indicator": name, "value": float(r[2])} for r in long.itertuples(index=False)]
+        print(f"  {name}: {len(long)} values in {time.time() - start:.1f}s")
+    return pd.DataFrame(rows).pivot_table(index=["iso3", "year"], columns="indicator", values="value").reset_index()
+
+
 def fetch_country_meta() -> pd.DataFrame:
     """World Bank region and income group for every country (from the bulk CSV metadata)."""
     import io
@@ -260,6 +294,9 @@ if __name__ == "__main__":
 
     if "--meta-only" in sys.argv:
         fetch_country_meta().to_csv(DATA / "country_meta.csv", index=False)
+        sys.exit()
+    if "--trade-only" in sys.argv:
+        fetch_trade().to_csv(DATA / "trade.csv", index=False)
         sys.exit()
     if "--solar-only" in sys.argv:
         fetch_country_solar().to_csv(DATA / "country_solar.csv", index=False)

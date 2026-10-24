@@ -96,9 +96,9 @@ def test_simulation_conserves_money():
     """Money spent on projects plus what is in the fund never exceeds the money put in plus returns."""
     a = model.params()
     ctx = model.context("LBY", a)
-    r = model.simulate(ctx, a, 0.1, {"solar": 40, "rail": 30, "fund": 30}, 6.5, np.ones((1, model.YEARS)))
+    r = model.simulate(ctx, a, 0.1, {"solar": 35, "rail": 20, "industry": 15, "fund": 30}, 6.5, np.ones((1, model.YEARS)))
     put_in = r["pool"].sum()
-    spent = r["solar_spend"].sum() + r["rail_spend"].sum()
+    spent = r["solar_spend"].sum() + r["rail_spend"].sum() + r["industry_spend"].sum()
     assert spent + r["fund"][0, -1] <= put_in + r["fund_returns"].sum() + 1
 
 
@@ -141,3 +141,57 @@ def test_homes_powered_never_exceeds_households():
             clean_added = y["renewable_pct"] - ctx["renew0"]
             if y["renewable_pct"] < 100:
                 assert clean_added == pytest.approx(y["household_coverage"] * a["residential_share"] * 100, rel=1e-6), iso3
+
+
+# ---------- Four sectors, presets, fuel reform, twins ----------
+
+def test_every_sector_reports_cost_return_and_payback():
+    a = model.params(iso3="LBY")
+    ctx = model.context("LBY", a)
+    r = model.simulate(ctx, a, 0.1, {"solar": 25, "rail": 25, "industry": 25, "fund": 25}, 6.5, np.ones((1, model.YEARS)))
+    econ = model.sector_economics(a, r, 6.5)
+    assert set(econ) == set(model.SECTORS)
+    for k in ["solar", "rail", "industry"]:
+        assert econ[k]["capex"] > 0 and econ[k]["annual_return"] > 0 and econ[k]["payback"] > 0, k
+    assert econ["fund"]["annual_return"] > 0
+    # Rail pays nothing before any track is open
+    assert r["rail_value"][0, : int(a["rail_build_years"])].sum() == 0
+
+
+def test_balanced_preset_funds_all_four_sectors():
+    a = model.params(iso3="NGA")
+    ctx = model.context("NGA", a)
+    best = optimize.best_plan(ctx, a, 0.1, 6.0, model.revenue_scenarios("NGA", 200), "balanced")
+    assert all(v > 0 for v in best["split"].values())
+
+
+def test_rebates_lower_household_cost_not_inflation():
+    a = model.params(iso3="LBY")
+    ctx = model.context("LBY", a)
+    none = np.zeros(model.YEARS)
+    low = model.fuel_reform("LBY", ctx, a, 0.6, 5, 0.0, none)
+    high = model.fuel_reform("LBY", ctx, a, 0.6, 5, 0.8, none)
+    assert low["cpi"] == pytest.approx(high["cpi"])
+    assert high["net_per_home_month"][-1] < low["net_per_home_month"][-1]
+
+
+def test_rail_relief_only_after_corridor_is_complete():
+    a = model.params(iso3="LBY")
+    ctx = model.context("LBY", a)
+    done = np.array([0, 0, 0, 0, 0, 0, 1, 1, 1, 1], dtype=float)
+    without = model.fuel_reform("LBY", ctx, a, 0.6, 5, 0.5, np.zeros(model.YEARS))
+    withrail = model.fuel_reform("LBY", ctx, a, 0.6, 5, 0.5, done)
+    assert withrail["cpi"][:6] == pytest.approx(without["cpi"][:6])
+    assert withrail["cpi"][6] < without["cpi"][6]
+
+
+def test_twin_differences_come_from_data(twin_index):
+    import differences
+
+    t = twin_index.find("IRQ")
+    tw = t["twins"][0]
+    out = differences.compare("IRQ", "Iraq", t["year"], tw["iso3"], tw["country"], tw["year"])
+    assert 1 <= len(out["differences"]) <= 3
+    for r in out["rows"]:
+        if r["twin"]["from"] is not None:
+            assert r["twin"]["from_year"] < r["twin"]["to_year"]
