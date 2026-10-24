@@ -15,7 +15,7 @@ load_dotenv()
 
 GEMINI_MODEL = "gemini-flash-lite-latest"  # answers in ~1s on this account; checked against the models list
 CLAUDE_MODEL = "claude-sonnet-5-5"
-TIMEOUT_S = 25
+TIMEOUT_S = 15  # per attempt; search gets 10s so the whole answer stays well under the page timeout
 FOOTER_WEB = "Based on Nahda data + web search"
 FOOTER_MODEL = "Based on Nahda data + model knowledge (web search unavailable)"
 OFFLINE = "Offline answer from Nahda data"
@@ -63,7 +63,8 @@ def gemini(prompt: str, grounded: bool) -> tuple[str, list[dict]]:
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"], http_options=types.HttpOptions(timeout=TIMEOUT_S * 1000))
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"],
+                          http_options=types.HttpOptions(timeout=(10 if grounded else TIMEOUT_S) * 1000))
     config = types.GenerateContentConfig(
         system_instruction=RULES,
         tools=[types.Tool(google_search=types.GoogleSearch())] if grounded else None,
