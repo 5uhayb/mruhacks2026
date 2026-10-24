@@ -28,7 +28,7 @@ export default function CountryPanel({ country, tab, setTab, onClose, onExport, 
           </div>
           <div className="flex shrink-0 items-center gap-4">
             <button onClick={onExport} disabled={!onExport} className="border-edge hover:border-mute rounded-md border px-2.5 py-1 text-[0.78rem] disabled:opacity-40">
-              Export brief
+              Pre-feasibility brief
             </button>
             <button onClick={onClose} className="text-mute hover:text-ink text-[0.8rem]" aria-label="Close panel">Close <kbd className="num border-edge ml-1 rounded border px-1 text-[0.65rem]">Esc</kbd></button>
           </div>

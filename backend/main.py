@@ -328,6 +328,7 @@ class Simulation(BaseModel):
     rail: dict
     low_resource: dict
     household_size: float
+    country_defaults: dict
     sectors: dict
     supply: dict
     reform: dict | None
@@ -392,7 +393,10 @@ def simulate(req: SimulateRequest):
     if rf:
         done = np.array([float(r["rail_km"] >= ctx["route"]["km"] - 1e-6) for r in rows])
         reform = {**model.fuel_reform(req.iso3, ctx, a, rf.target_price, rf.phase_years, rf.rebate_share, done),
-                  **rf.model_dump(), "price_now": a["fuel_price_now"], "added_to_plan": extra.tolist()}
+                  **rf.model_dump(), "price_now": a["fuel_price_now"], "added_to_plan": extra.tolist(),
+                  "litres_per_person": a["fuel_litres_per_person"],
+                  "litres_source": None if "fuel_litres_per_person" in req.assumptions
+                  else model.default_fuel_litres(req.iso3, a["road_fuel_share"])}
     sup = model.supply_terms(a, req.supply)
 
     before = year10(base)
@@ -424,6 +428,7 @@ def simulate(req: SimulateRequest):
         homes=homes_summary(ctx, y), rail=rail,
         low_resource={"is_low": classify(req.iso3)["rents_pct_gdp"] < 5, "rents_pct_gdp": classify(req.iso3)["rents_pct_gdp"]},
         household_size=a["household_size"],
+        country_defaults={k: a[k] for k in ["household_size", "fuel_litres_per_person"]},
         sectors=model.sector_economics(a, base, kwh, req.supply),
         supply={"choice": req.supply, "label": model.SUPPLY[req.supply], "capex_mult": sup["capex_mult"],
                 "build_years": sup["build_years"], "jobs": y["local_jobs"], "local_value": y["local_value"],

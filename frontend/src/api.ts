@@ -28,7 +28,7 @@ api.interceptors.response.use(
   },
 )
 
-export const SECTORS = ['solar', 'rail', 'fund'] as const
+export const SECTORS = ['solar', 'rail', 'industry', 'fund'] as const
 export type Sector = (typeof SECTORS)[number]
 export type Split = Record<Sector, number>
 export type Point = { year: number; value: number }
@@ -111,6 +111,16 @@ export type Twin = {
   access: number[]
   gdp_per_capita: number[]
 }
+export type ChangeSpan = { from: number | null; to: number | null; from_year: number | null; to_year: number | null }
+export type TwinCompare = {
+  twin: string
+  twin_name: string
+  twin_years: [number, number]
+  own_years: [number, number]
+  rows: { key: string; label: string; unit: string; source: string; twin: ChangeSpan; own: ChangeSpan; score: number | null }[]
+  differences: string[]
+  meta: Meta
+}
 export type Twins = {
   year: number
   access_now: number
@@ -154,9 +164,15 @@ export type Simulation = {
     km_per_year: number
     annual_pool: number
     years_to_complete: number | null
+    complete_year: number | null
   }
   low_resource: { is_low: boolean; rents_pct_gdp: number }
   household_size: number
+  /** Assumptions whose default depends on the country (value actually used) */
+  country_defaults: Record<string, number>
+  sectors: Record<Sector, SectorEconomics>
+  supply: { choice: Supply; label: string; capex_mult: number; build_years: number; jobs: number; local_value: number; note: string }
+  reform: ReformResult | null
   shocks: Record<string, {
     label: string
     detail: string
@@ -179,14 +195,56 @@ export type Simulation = {
   }
   meta: Meta
 }
-export type Optimized = { split: Split; p_funded: number; access_y10: number; feasible: boolean; plans_tested: number; min_funded: number; meta: Meta }
-export type AssumptionSpec = { value: number; min: number; max: number; unit: string; label: string; note: string }
+export type SectorEconomics = { capex: number; annual_return: number; payback: number | null; basis: string }
+export type Supply = 'import' | 'local'
+export type ReformInput = { target_price: number; phase_years: number; rebate_share: number; add_to_plan: boolean }
+export type ReformResult = ReformInput & {
+  price_now: number
+  price: number[]
+  freed: number[]
+  kept: number[]
+  added_to_plan: number[]
+  cpi: number[]
+  cost_per_home_month: number[]
+  rebate_per_home_month: number[]
+  net_per_home_month: number[]
+  rail_relief: boolean[]
+  peak_cpi: number
+  warning: boolean
+  spending: { value: number; year: number | null; source: string }
+  litres_per_person: number
+  litres_source: { energy_kgoe: number; year: number; source: string } | null
+}
+export const PRESETS = ['balanced', 'power', 'mobility', 'growth', 'resilience'] as const
+export type Preset = (typeof PRESETS)[number]
+export type Optimized = {
+  split: Split
+  p_funded: number
+  access_y10: number
+  feasible: boolean
+  plans_tested: number
+  min_funded: number
+  preset: Preset
+  preset_label: string
+  rationale: string
+  meta: Meta
+}
+export type AssumptionSpec = { group: string; value: number; min: number; max: number; unit: string; label: string; note: string }
 
-export type SimulateInput = { iso3: string; share: number; split: Split; assumptions: Record<string, number> }
+export type SimulateInput = {
+  iso3: string
+  share: number
+  split: Split
+  assumptions: Record<string, number>
+  supply: Supply
+  reform: ReformInput | null
+  preset?: Preset
+}
 
 export const getWorld = async () => (await api.get<World>('/world')).data
 export const getCountry = async (iso3: string) => (await api.get<Country>(`/country/${iso3}`)).data
 export const getTwins = async (iso3: string) => (await api.get<Twins>(`/twins/${iso3}`)).data
+export const getTwinCompare = async (iso3: string, twin: string) => (await api.get<TwinCompare>(`/twins/${iso3}/compare/${twin}`)).data
 export const simulate = async (input: SimulateInput) => (await api.post<Simulation>('/simulate', input)).data
 export const optimize = async (input: SimulateInput) => (await api.post<Optimized>('/optimize', input)).data
 export const getAssumptions = async () => (await api.get<Record<string, AssumptionSpec>>('/assumptions')).data

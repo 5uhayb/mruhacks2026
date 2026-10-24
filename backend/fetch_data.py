@@ -211,6 +211,7 @@ TRADE_INDICATORS = {
     "NV.IND.MANF.ZS": "manufacturing_pct_gdp",
     "TX.VAL.FUEL.ZS.UN": "fuel_exports_pct",
     "NE.CON.PRVT.CD": "household_consumption_usd",
+    "EG.USE.PCAP.KG.OE": "energy_use_kgoe_pc",
 }
 
 

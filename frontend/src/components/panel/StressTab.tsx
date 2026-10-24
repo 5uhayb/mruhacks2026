@@ -51,6 +51,7 @@ function Futures({ paths, start, startYear, shock }: { paths: number[][]; start:
 
 export default function StressTab({ sim }: { sim: Simulation }) {
   const [shock, setShock] = useState('oil_price')
+  const [compare, setCompare] = useState(false)
   const s = sim.shocks[shock]
   const f = sim.futures
   const startYear = sim.start.access_year ?? new Date().getFullYear()
@@ -70,7 +71,32 @@ export default function StressTab({ sim }: { sim: Simulation }) {
 
   return (
     <>
-      <Section title="Test 1 · Single shocks" right={`Each shock alone, ${startYear + 10}, as planned vs after`}>
+      <Section title={`${f.runs} historical bootstrap futures`} right={`From ${f.history_years} ${f.resource} income`}>
+        <p className="text-[0.85rem] leading-snug">
+          {metric} (%) across {f.runs} futures built from {f.history_years} {f.resource} income history
+        </p>
+        <div className="text-mute mt-1 mb-2 flex flex-wrap gap-x-4 text-[0.72rem]">
+          <span><span className="bg-gold/60 mr-1.5 inline-block h-[2px] w-3 align-middle" />One future each</span>
+          <span><span className="bg-ink mr-1.5 inline-block h-[2px] w-3 align-middle" />Median</span>
+          {compare && <span><span className="border-down mr-1.5 inline-block w-3 border-t-2 border-dashed align-middle" />{s.label} (single shock)</span>}
+        </div>
+        <Futures key={`${sim.share}-${sim.pool}`} paths={useAccess ? f.access_paths : f.clean_paths} start={useAccess ? sim.start.access : sim.start.clean}
+          startYear={startYear} shock={compare ? shockPath : null} />
+        <p className="mt-3 text-[0.9rem] leading-snug">
+          Each future replays random 3-year stretches of this country's real {f.resource} income swings.
+          In 9 out of 10, {useAccess ? 'electricity access' : 'clean electricity'} still reaches{' '}
+          <span className="num text-gold">{formatPct(useAccess ? f.access_p10 : f.clean_p10)}</span> by {startYear + 10}.
+          The plan keeps at least 90% of its spending on track in <span className="num">{formatPct(f.p_funded * 100, 0)}</span> of futures.
+        </p>
+      </Section>
+
+      <div className="border-edge border-b px-5 py-3">
+        <button onClick={() => setCompare(!compare)} className="text-mute hover:text-ink text-[0.85rem]" aria-expanded={compare}>
+          Compare single macro shocks {compare ? '▴' : '▾'}
+        </button>
+      </div>
+      {compare && (
+      <Section title="Single macro shocks" right={`Each shock alone, ${startYear + 10}, as planned vs after`}>
         <div className="flex flex-wrap gap-2">
           {Object.entries(sim.shocks).map(([key, v]) => (
             <button key={key} onClick={() => setShock(key)}
@@ -110,27 +136,11 @@ export default function StressTab({ sim }: { sim: Simulation }) {
           </tbody>
         </table>
         <p className="mt-3 text-[0.9rem] leading-snug">{s.note}</p>
-      </Section>
-
-      <Section title={`Test 2 · ${f.runs} futures from real history`} right="Independent of Test 1">
-        <p className="text-[0.85rem] leading-snug">
-          {metric} (%) across {f.runs} futures built from {f.history_years} {f.resource} income history
-        </p>
-        <div className="text-mute mt-1 mb-2 flex flex-wrap gap-x-4 text-[0.72rem]">
-          <span><span className="bg-gold/60 mr-1.5 inline-block h-[2px] w-3 align-middle" />One future each</span>
-          <span><span className="bg-ink mr-1.5 inline-block h-[2px] w-3 align-middle" />Median</span>
-          <span><span className="border-down mr-1.5 inline-block w-3 border-t-2 border-dashed align-middle" />{s.label} (Test 1)</span>
-        </div>
-        <Futures key={`${sim.share}-${sim.pool}`} paths={useAccess ? f.access_paths : f.clean_paths} start={useAccess ? sim.start.access : sim.start.clean}
-          startYear={startYear} shock={shockPath} />
-        <p className="mt-3 text-[0.9rem] leading-snug">
-          Each future replays random 3-year stretches of this country's real {f.resource} income swings.
-          In 9 out of 10, {useAccess ? 'electricity access' : 'clean electricity'} still reaches{' '}
-          <span className="num text-gold">{formatPct(useAccess ? f.access_p10 : f.clean_p10)}</span> by {startYear + 10}.
-          The red line is the "{s.label}" shock, which ends at <span className="num text-down">{formatPct(shockPath[shockPath.length - 1])}</span>.
-          The plan keeps at least 90% of its spending on track in <span className="num">{formatPct(f.p_funded * 100, 0)}</span> of futures.
+        <p className="text-mute mt-2 text-[0.8rem] leading-snug">
+          The red dashed line on the futures chart is this shock, ending at <span className="num text-down">{formatPct(shockPath[shockPath.length - 1])}</span>.
         </p>
       </Section>
+      )}
     </>
   )
 }

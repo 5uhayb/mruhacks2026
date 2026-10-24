@@ -4,9 +4,9 @@ import { formatCompact, formatInt, formatMoney, formatNumber, formatPct } from '
 export const LIMITATIONS = [
   'Assumes new power can reach homes through the grid; transmission and connection upgrades are not modelled.',
   'Storage for solar beyond daytime demand is not costed.',
-  'Rail: only the cost is modelled, not the benefits.',
+  'Sector returns (rail, tourism & industry) and fuel reform effects use editable planning estimates, not measurements.',
   'Governance: the money has to reach the projects; weak institutions raise costs and delays.',
-  'Fuel subsidies: burning less oil and gas at home may mean subsidy changes that affect household bills.',
+  'Fuel price reform ignores changes in how much fuel people buy; the current pump price is a placeholder to set per country.',
   'The impact model cannot predict declines in electricity access.',
 ]
 
@@ -31,8 +31,27 @@ export function buildBrief(args: {
   const y = sim.years[sim.years.length - 1]
   const startYear = sim.start.access_year ?? new Date().getFullYear()
   const endYear = startYear + 10
-  const total = args.split.solar + args.split.rail + args.split.fund || 1
+  const total = args.split.solar + args.split.rail + args.split.industry + args.split.fund || 1
   const pct = (k: keyof Split) => formatPct((args.split[k] / total) * 100, 0)
+  const SECTOR_NAMES: Record<keyof Split, string> = { solar: 'Power (solar)', rail: 'Transport (rail)', industry: 'Tourism & industry', fund: 'Savings fund' }
+  const sectorLines = (Object.keys(SECTOR_NAMES) as (keyof Split)[]).map((k) => {
+    const e = sim.sectors[k]
+    return `- **${SECTOR_NAMES[k]}:** ${k === 'fund' ? 'saved' : 'invested'} ${formatMoney(e.capex)}; returns ${formatMoney(e.annual_return)}/yr by ${endYear}; payback ${e.payback != null ? `${formatNumber(e.payback, 1)} years` : 'none needed (capital stays liquid)'}. ${e.basis}.`
+  })
+  const rf = sim.reform
+  const full = rf ? Math.min(rf.phase_years, 10) - 1 : 0
+  const relief = rf ? rf.rail_relief.indexOf(true) : -1
+  const reformLines = rf
+    ? [
+        '',
+        '## Fuel price reform (estimates)',
+        `- Pump price from $${formatNumber(rf.price_now, 2)}/L (estimate) to $${formatNumber(rf.target_price, 2)}/L over ${rf.phase_years} years; ${formatPct(rf.rebate_share * 100, 0)} of savings returned as cash rebates.`,
+        `- Subsidy freed: ${formatMoney(rf.freed[full])}/yr at full price; ${formatMoney(rf.kept[full])}/yr kept${rf.add_to_plan ? ' and added to the plan' : ''}.`,
+        `- Consumer inflation: +${formatNumber(rf.peak_cpi * 100, 1)}% CPI per year during phase-in${rf.warning ? ' (above the warning threshold)' : ''}. Rebates lower household cost, not inflation.`,
+        `- Net cost per household: ${formatMoney(rf.net_per_home_month[full])}/month after rebates.`,
+        relief >= 0 ? `- Rail freight relief from ${startYear + relief + 1}, when the corridor is complete.` : '- No rail freight relief within 10 years: the corridor is not complete.',
+      ]
+    : []
   const r = c.revenue
   const h = sim.homes
   const homes = h.every_home
@@ -46,13 +65,13 @@ export function buildBrief(args: {
     (s) => `- **${s.label}:** savings ${formatMoney(s.before.fund)} → ${formatMoney(s.after.fund)}, solar ${formatCompact(s.before.solar_mw, 'MW')} → ${formatCompact(s.after.solar_mw, 'MW')}, access ${formatPct(s.before.access_pct)} → ${formatPct(s.after.access_pct)}.`,
   )
   const assumptionLines = Object.entries(specs).map(([k, s]) => {
-    const v = overrides[k] ?? (k === 'household_size' ? sim.household_size : s.value)
+    const v = overrides[k] ?? sim.country_defaults[k] ?? s.value
     return `- ${s.label}: ${assumptionValue(s, v)}${k in overrides ? ' (edited)' : ''}`
   })
 
   return [
-    `# ${c.name}: Nahda plan brief`,
-    `${c.classification.label}. Generated ${(args.date ?? new Date()).toISOString().slice(0, 10)}. Real data from the World Bank and NASA POWER (each value with its latest available year); everything under "Results" and "Stress test" is a model estimate.`,
+    `# ${c.name}: pre-feasibility brief`,
+    `${c.classification.label}. Generated ${(args.date ?? new Date()).toISOString().slice(0, 10)}. A capital allocation scenario for development finance institutions, NGOs and trade organizations, not a recommendation to any government. Real data from the World Bank and NASA POWER (each value with its latest available year); everything under "Results", "Sectors", "Fuel price reform" and "Stress test" is a model estimate.`,
     '',
     '## Where it stands',
     `- Electricity access: ${formatPct(sim.start.access)} (latest available, ${sim.start.access_year}).`,
@@ -61,9 +80,10 @@ export function buildBrief(args: {
       ? `- ${c.resource[0].toUpperCase() + c.resource.slice(1)} income: ${formatMoney(r.avg)} a year, 5-year average (${r.years[0]}–${r.years[r.years.length - 1]}).`
       : '- Resource income: no data.',
     '',
-    '## Plan settings',
+    '## Scenario settings',
     `- Invest ${formatPct(sim.share * 100, 0)} of ${c.resource} income: ${formatMoney(sim.pool, 2)} a year.`,
-    `- Split: solar ${pct('solar')} (${formatMoney(sim.split_amounts.solar, 2)}), rail ${pct('rail')} (${formatMoney(sim.split_amounts.rail, 2)}), savings ${pct('fund')} (${formatMoney(sim.split_amounts.fund, 2)}) a year.`,
+    `- Split: power ${pct('solar')} (${formatMoney(sim.split_amounts.solar, 2)}), transport ${pct('rail')} (${formatMoney(sim.split_amounts.rail, 2)}), tourism & industry ${pct('industry')} (${formatMoney(sim.split_amounts.industry, 2)}), savings ${pct('fund')} (${formatMoney(sim.split_amounts.fund, 2)}) a year.`,
+    `- Solar sourcing: ${sim.supply.label} (build cost ×${formatNumber(sim.supply.capex_mult, 2)}). ${sim.supply.note}`,
     sim.low_resource.is_low ? `- Resource income is a small share of this economy (${formatPct(sim.low_resource.rents_pct_gdp)} of GDP), so this plan has limited impact here.` : '',
     '',
     `## Results by ${endYear} (estimates)`,
@@ -71,6 +91,10 @@ export function buildBrief(args: {
     `- Electricity access: ${formatPct(y.access_pct)}. Clean electricity: ${formatPct(y.renewable_pct)}.`,
     `- Rail: ${rail}.`,
     `- Savings fund: ${formatMoney(y.fund)}, about ${formatNumber(sim.months_covered, 1)} months of ${c.resource} income.`,
+    '',
+    `## Sectors: cost, yearly return and payback (estimates)`,
+    ...sectorLines,
+    ...reformLines,
     '',
     '## If nothing changes',
     twinEnd ? `- Historical twins suggest ${formatPct(twinEnd.access)} electricity access by ${twinEnd.year}.` : '',

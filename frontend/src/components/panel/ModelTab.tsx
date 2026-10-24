@@ -58,6 +58,12 @@ export default function ModelTab({ country, twins }: { country: Country; twins: 
   const o = country.outlook
   return (
     <>
+      <div className="border-edge border-b px-5 py-4">
+        <div className="label text-cyan">Supervised learning</div>
+        <p className="mt-1 text-[0.95rem] leading-snug">
+          Gradient-boosted decision trees (LightGBM) trained on historical country panel data to predict the share of the electricity gap closed over 10 years.
+        </p>
+      </div>
       <Section title="What drives this forecast">
         <p className="text-mute -mt-1 mb-3 text-[0.8rem]">How much each factor pushes the 10-year prediction up or down (percentage points).</p>
         {!o && <p className="text-mute text-[0.85rem]">Not enough data for this country.</p>}

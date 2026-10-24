@@ -5,12 +5,10 @@ import { useLog } from '../log'
 
 /** Top bar: wordmark and country search. Cmd/Ctrl+K focuses it, Enter flies to the first match.
  *  Revitalization targets (chosen by a data rule) are listed first, then all countries. */
-export function CommandBar({ countries, targetRule, onSelect, systemOpen, onToggleSystem }: {
+export function CommandBar({ countries, targetRule, onSelect }: {
   countries: WorldCountry[]
   targetRule: string
   onSelect: (iso3: string) => void
-  systemOpen: boolean
-  onToggleSystem: () => void
 }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
@@ -55,6 +53,7 @@ export function CommandBar({ countries, targetRule, onSelect, systemOpen, onTogg
       <div className="pointer-events-auto flex items-baseline gap-2">
         <span className="text-[1.15rem] font-semibold tracking-tight">Nahda</span>
         <span className="text-mute text-[1rem]" lang="ar">نهضة</span>
+        <span className="text-faint ml-1 hidden text-[0.75rem] xl:inline">Pre-feasibility &amp; capital allocation</span>
       </div>
       <div className="pointer-events-auto relative w-[360px]">
         <input
@@ -107,9 +106,6 @@ export function CommandBar({ countries, targetRule, onSelect, systemOpen, onTogg
           </div>
         )}
       </div>
-      <button onClick={onToggleSystem} className={`pointer-events-auto ml-auto text-[0.8rem] ${systemOpen ? 'text-ink' : 'text-mute hover:text-ink'}`}>
-        <kbd className="num border-edge mr-1.5 rounded border px-1.5 text-[0.7rem]">`</kbd>System
-      </button>
     </div>
   )
 }
@@ -121,8 +117,8 @@ export function TimeScrubber({ years, year, lastMeasured, setYear, rightInset, p
   lastMeasured: number
   setYear: (y: number) => void
   rightInset: number
-  /** The selected country's plan, if any: its projected access for this year and the with/without toggle */
-  plan: { country: string; value: number | null; usePlan: boolean; setUsePlan: (v: boolean) => void } | null
+  /** The selected country's plan, if any: its projected access for this year under the active plan */
+  plan: { country: string; value: number | null } | null
 }) {
   const [playing, setPlaying] = useState(false)
   const first = years[0]
@@ -151,26 +147,16 @@ export function TimeScrubber({ years, year, lastMeasured, setYear, rightInset, p
         <input className="scrub relative" type="range" min={first} max={last} step={1} value={year} onChange={(e) => setYear(Number(e.target.value))} aria-label="Year" />
         <div className="num text-faint relative h-4 text-[0.7rem]">
           <span className="absolute left-0">{first}</span>
-          <span className="absolute -translate-x-1/2" style={{ left: `${todayPct}%` }}>{lastMeasured} · latest data</span>
-          <span className="text-gold/70 absolute right-0">{last} projected</span>
+          <span className="absolute -translate-x-1/2" style={{ left: `${todayPct}%` }} title="Latest measured year">{lastMeasured}</span>
+          <span className="text-gold/70 absolute right-0" title="Projected">{last}</span>
         </div>
       </div>
-      {plan && (
-        <div className="border-edge bg-panel flex shrink-0 overflow-hidden rounded-md border text-[0.72rem]" role="group" aria-label="Projection">
-          {[true, false].map((v) => (
-            <button key={String(v)} onClick={() => plan.setUsePlan(v)}
-              className={`px-2.5 py-1.5 ${plan.usePlan === v ? 'bg-edge text-ink' : 'text-mute hover:text-ink'}`}>
-              {v ? 'With plan' : 'Without plan'}
-            </button>
-          ))}
-        </div>
-      )}
       <div className="w-52 shrink-0 text-right">
         <div className={`num text-[1.6rem] leading-none ${projected ? 'text-gold' : ''}`}>{year}</div>
         <div className="text-mute mt-1 text-[0.72rem] leading-snug">
           {!projected
             ? 'Electricity access, measured'
-            : plan?.usePlan && plan.value != null
+            : plan?.value != null
               ? `Projected with your plan: ${plan.country} ${formatPct(plan.value)}`
               : 'Projected, no new plan (impact model)'}
         </div>

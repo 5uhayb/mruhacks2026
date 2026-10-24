@@ -75,8 +75,12 @@ ASSUMPTIONS = {
     "fuel_price_now": {"group": "Fuel price reform", "value": 0.15, "min": 0.01, "max": 2.0, "unit": "$/L",
                        "label": "Current pump price (estimate)",
                        "note": "Generic placeholder, not this country's price: set it to the actual pump price before relying on the reform numbers."},
-    "fuel_litres_per_person": {"group": "Fuel price reform", "value": 400, "min": 50, "max": 2000, "unit": "L/yr",
-                               "label": "Subsidized fuel use per person (estimate)", "note": "Yearly petrol and diesel sold at the subsidized price, per person."},
+    "road_fuel_share": {"group": "Fuel price reform", "value": 0.25, "min": 0.1, "max": 0.5, "unit": "ratio",
+                        "label": "Road fuel share of energy use (estimate)",
+                        "note": "Share of a country's total energy use that is petrol and diesel. Sets the default fuel use per person below."},
+    "fuel_litres_per_person": {"group": "Fuel price reform", "value": 400, "min": 20, "max": 3000, "unit": "L/yr",
+                               "label": "Subsidized fuel use per person (estimate)",
+                               "note": "Default per country = World Bank energy use per person (EG.USE.PCAP.KG.OE) × road fuel share × 1.2 L per kg of oil equivalent."},
     "household_fuel_share": {"group": "Fuel price reform", "value": 0.4, "min": 0.1, "max": 0.8, "unit": "ratio",
                              "label": "Households' share of fuel (estimate)", "note": "Share of subsidized fuel bought directly by households; the rest goes to transport and industry."},
     "pass_through": {"group": "Fuel price reform", "value": 0.7, "min": 0.2, "max": 1.0, "unit": "ratio",
@@ -107,10 +111,14 @@ SOLAR_SOURCE = "NASA POWER ALLSKY_SFC_SW_DWN, annual climatology"
 
 def params(overrides: dict | None = None, iso3: str | None = None) -> dict:
     """Assumption values, with user overrides clipped to each assumption's range.
-    With a country, household size defaults to that country's regional average instead of the generic value."""
+    With a country, household size and fuel use per person default to country values instead of the generic ones."""
     overrides = dict(overrides or {})
     if iso3 and "household_size" not in overrides:
         overrides["household_size"] = default_household_size(iso3)
+    if iso3 and "fuel_litres_per_person" not in overrides:
+        litres = default_fuel_litres(iso3, overrides.get("road_fuel_share", ASSUMPTIONS["road_fuel_share"]["value"]))
+        if litres:
+            overrides["fuel_litres_per_person"] = litres["value"]
     out = {}
     for key, spec in ASSUMPTIONS.items():
         value = overrides.get(key, spec["value"])
@@ -130,6 +138,30 @@ HOUSEHOLD_SIZE_BY_REGION = {
     "North America": 2.5,
 }
 HOUSEHOLD_SIZE_BY_COUNTRY = {"LBY": 6.0}
+
+
+LITRES_PER_KGOE = 1.2  # one kg of oil equivalent (41.9 MJ) ≈ 1.2 L of petrol or diesel
+
+
+@lru_cache(maxsize=None)
+def energy_use(iso3: str) -> dict | None:
+    """Energy use per person, kg of oil equivalent (World Bank EG.USE.PCAP.KG.OE), latest year."""
+    path = DATA / "trade.csv"
+    if not path.exists():
+        return None
+    t = pd.read_csv(path)
+    if "energy_use_kgoe_pc" not in t:
+        return None
+    t = t[t.iso3 == iso3].dropna(subset=["energy_use_kgoe_pc"])
+    return {"value": float(t.energy_use_kgoe_pc.iloc[-1]), "year": int(t.year.iloc[-1])} if len(t) else None
+
+
+def default_fuel_litres(iso3: str, road_fuel_share: float) -> dict | None:
+    e = energy_use(iso3)
+    if e is None:
+        return None
+    return {"value": e["value"] * road_fuel_share * LITRES_PER_KGOE, "energy_kgoe": e["value"], "year": e["year"],
+            "source": "World Bank EG.USE.PCAP.KG.OE × road fuel share (estimate)"}
 
 
 @lru_cache(maxsize=None)

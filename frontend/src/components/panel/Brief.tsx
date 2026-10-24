@@ -8,7 +8,7 @@ export default function Brief({ markdown, onClose }: { markdown: string; onClose
     <div className="brief-backdrop fixed inset-0 z-50 grid place-items-center bg-black/60 p-6" onClick={onClose}>
       <div className="brief-sheet bg-panel border-edge flex max-h-[90vh] w-[760px] max-w-full flex-col rounded-md border" onClick={(e) => e.stopPropagation()}>
         <div className="brief-actions border-edge flex items-center justify-between gap-3 border-b px-5 py-3">
-          <span className="label">Export brief</span>
+          <span className="label">Pre-feasibility brief</span>
           <div className="flex gap-2">
             <button
               onClick={async () => {
