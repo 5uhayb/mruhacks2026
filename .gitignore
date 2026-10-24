@@ -8,6 +8,7 @@ __pycache__/
 venv/
 .ipynb_checkpoints/
 *.joblib
+!backend/ml/models/impact.joblib
 
 # Node
 node_modules/
