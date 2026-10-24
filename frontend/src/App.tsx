@@ -4,12 +4,12 @@ import {
   getCountry,
   getTwins,
   getWorld,
-  optimize,
+  getPresets,
   simulate,
   SECTORS,
   type AssumptionSpec,
   type Country,
-  type Optimized,
+  type Presets,
   type Preset,
   type ReformInput,
   type Simulation,
@@ -70,8 +70,8 @@ function App() {
   const [country, setCountry] = useState<Country | null>(null)
   const [twins, setTwins] = useState<Twins | null>(null)
   const [sim, setSim] = useState<Simulation | null>(null)
-  const [optimized, setOptimized] = useState<Optimized | null>(null)
-  const [optimizing, setOptimizing] = useState<Preset | null>(null)
+  const [presets, setPresets] = useState<Presets | null>(null)
+  const [activePreset, setActivePreset] = useState<Preset | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Load the world, outlines and assumptions; preload Libya so the first click is instant
@@ -108,7 +108,8 @@ function App() {
     setCountry(null)
     setTwins(null)
     setSim(null)
-    setOptimized(null)
+    setPresets(null)
+    setActivePreset(null)
     if (!selected || !world) return
     let live = true
     cachedCountry(selected).then((c) => live && setCountry(c)).catch(() => {})
@@ -149,30 +150,42 @@ function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // Priority preset: run the optimizer with that priority and animate the split to its answer
-  const animating = useRef(0)
-  const runPreset = useCallback(async (preset: Preset) => {
-    if (!selected) return
-    setOptimizing(preset)
-    try {
-      const best = await optimize({ iso3: selected, share, split, assumptions: overrides, supply, reform: null, preset })
-      setOptimized(best)
-      const total = SECTORS.reduce((s, k) => s + split[k], 0) || 1
-      const from = Object.fromEntries(SECTORS.map((k) => [k, (split[k] / total) * 100])) as Split
-      const start = performance.now()
-      const id = ++animating.current
-      const step = (now: number) => {
-        if (id !== animating.current) return
-        const t = Math.min(1, (now - start) / 700)
-        const e = 1 - Math.pow(1 - t, 3)
-        setSplit(Object.fromEntries(SECTORS.map((k) => [k, t < 1 ? from[k] + (best.split[k] - from[k]) * e : best.split[k]])) as Split)
-        if (t < 1) requestAnimationFrame(step)
-      }
-      requestAnimationFrame(step)
-    } finally {
-      setOptimizing(null)
+  // Presets are computed and cached on the backend; fetch them in the background so clicking one is instant
+  useEffect(() => {
+    if (!selected || !world) return
+    let live = true
+    const t = setTimeout(() => getPresets(selected, share, supply).then((p) => live && setPresets(p)).catch(() => {}), 150)
+    return () => {
+      live = false
+      clearTimeout(t)
     }
-  }, [selected, share, split, overrides, supply])
+  }, [selected, share, supply, world])
+
+  // Apply a preset: animate the split to it (no network call)
+  const animating = useRef(0)
+  const applyPreset = useCallback((preset: Preset) => {
+    const target = presets?.presets[preset]?.split
+    if (!target) return
+    setActivePreset(preset)
+    const total = SECTORS.reduce((s, k) => s + split[k], 0) || 1
+    const from = Object.fromEntries(SECTORS.map((k) => [k, (split[k] / total) * 100])) as Split
+    const start = performance.now()
+    const id = ++animating.current
+    const step = (now: number) => {
+      if (id !== animating.current) return
+      const t = Math.min(1, (now - start) / 500)
+      const e = 1 - Math.pow(1 - t, 3)
+      setSplit(Object.fromEntries(SECTORS.map((k) => [k, t < 1 ? from[k] + (target[k] - from[k]) * e : target[k]])) as Split)
+      if (t < 1) requestAnimationFrame(step)
+    }
+    requestAnimationFrame(step)
+  }, [presets, split])
+
+  // "Use [Peer]'s playbook →" on the Twins tab
+  const applyPlaybook = useCallback(() => {
+    setTab('Plan')
+    applyPreset('playbook')
+  }, [applyPreset])
 
   // Picking a new country always starts on its Profile (a shared URL can still open any tab directly)
   const select = useCallback((iso: string | null) => {
@@ -253,10 +266,10 @@ function App() {
           {country && tab === 'Profile' && <Profile country={country} />}
           {country && tab === 'Plan' && (
             <PlanTab country={country} sim={sim} share={share} setShare={setShare} split={split} setSplit={setSplit}
-              onPreset={runPreset} optimizing={optimizing} optimized={optimized} specs={specs} overrides={overrides} setOverrides={setOverrides}
+              presets={presets} activePreset={activePreset} onPreset={applyPreset} specs={specs} overrides={overrides} setOverrides={setOverrides}
               supply={supply} setSupply={setSupply} reform={reform} setReform={setReform} />
           )}
-          {country && tab === 'Twins' && <TwinsTab country={country} twins={twins} />}
+          {country && tab === 'Twins' && <TwinsTab country={country} twins={twins} presets={presets} onPlaybook={applyPlaybook} />}
           {country && tab === 'Stress' && (sim ? <StressTab sim={sim} /> : <div className="text-mute p-5 text-[0.85rem]">Simulating…</div>)}
           {country && tab === 'Model' && <ModelTab country={country} twins={twins} />}
           </Boundary>

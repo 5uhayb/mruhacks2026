@@ -178,6 +178,24 @@ export const projectedColor = (access: number) => rgb(mix(tier(access), GOLD, 0.
 export const planColor = (access: number, strength: number) => rgb(mix(tier(access), GOLD, 0.35 + 0.4 * strength))
 export const NO_DATA = '#2A303C'
 
+/** "How is this calculated?": the longer explanation lives in a hover tooltip (click toggles it for touch) */
+export function Info({ text, label = 'How is this calculated?' }: { text: string; label?: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <span className="relative inline-block">
+      <button type="button" title={text} onClick={() => setOpen(!open)} onBlur={() => setOpen(false)}
+        className="text-faint hover:text-ink cursor-help text-[0.72rem] underline decoration-dotted underline-offset-2">
+        {label}
+      </button>
+      {open && (
+        <span role="tooltip" className="bg-panel border-edge text-mute absolute top-full left-0 z-40 mt-1 block w-72 rounded-md border p-2.5 text-[0.75rem] leading-snug shadow-lg">
+          {text}
+        </span>
+      )}
+    </span>
+  )
+}
+
 // ---------- Flags (bundled SVGs from flag-icons, so they render offline and on Windows) ----------
 
 const iso2ByIso3 = new Map<string, string>()

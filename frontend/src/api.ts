@@ -111,6 +111,12 @@ export type Twin = {
   access_then: number
   access: number[]
   gdp_per_capita: number[]
+  turnaround: boolean
+  oil_share_then: number | null
+  /** The single biggest shift over the next 10 years, as a fact from the data */
+  changed: string
+  access_change: number
+  income_change: number
 }
 export type ChangeSpan = { from: number | null; to: number | null; from_year: number | null; to_year: number | null }
 export type TwinCompare = {
@@ -130,6 +136,7 @@ export type Twins = {
   twins: Twin[]
   forecast: { year: number; access: number; access_low: number; access_high: number; gdp: number; gdp_low: number; gdp_high: number }[]
   windows_searched: number
+  rule: string
   meta: Meta
 }
 
@@ -216,20 +223,22 @@ export type ReformResult = ReformInput & {
   litres_per_person: number
   litres_source: { energy_kgoe: number; year: number; source: string } | null
 }
-export const PRESETS = ['balanced', 'power', 'mobility', 'growth', 'resilience'] as const
+export const PRESETS = ['playbook', 'balanced', 'power', 'mobility', 'growth'] as const
 export type Preset = (typeof PRESETS)[number]
-export type Optimized = {
+export type PresetResult = {
   split: Split
-  p_funded: number
-  access_y10: number
-  feasible: boolean
-  plans_tested: number
-  min_funded: number
-  preset: Preset
-  preset_label: string
-  rationale: string
-  meta: Meta
+  label: string
+  /** One sentence, at most 15 words */
+  line: string
+  p_funded?: number
+  feasible?: boolean
+  note?: string
+  peer?: string
+  peer_name?: string
+  peer_year?: number
+  rule?: string
 }
+export type Presets = { presets: Partial<Record<Preset, PresetResult>>; playbook_peer: string | null; plans_tested: number; share: number; meta: Meta }
 export type AssumptionSpec = { group: string; value: number; min: number; max: number; unit: string; label: string; note: string }
 
 export type SimulateInput = {
@@ -239,7 +248,6 @@ export type SimulateInput = {
   assumptions: Record<string, number>
   supply: Supply
   reform: ReformInput | null
-  preset?: Preset
 }
 
 export const getWorld = async () => (await api.get<World>('/world')).data
@@ -247,5 +255,6 @@ export const getCountry = async (iso3: string) => (await api.get<Country>(`/coun
 export const getTwins = async (iso3: string) => (await api.get<Twins>(`/twins/${iso3}`)).data
 export const getTwinCompare = async (iso3: string, twin: string) => (await api.get<TwinCompare>(`/twins/${iso3}/compare/${twin}`)).data
 export const simulate = async (input: SimulateInput) => (await api.post<Simulation>('/simulate', input)).data
-export const optimize = async (input: SimulateInput) => (await api.post<Optimized>('/optimize', input)).data
+export const getPresets = async (iso3: string, share: number, supply: Supply) =>
+  (await api.get<Presets>(`/presets/${iso3}`, { params: { share, supply } })).data
 export const getAssumptions = async () => (await api.get<Record<string, AssumptionSpec>>('/assumptions')).data

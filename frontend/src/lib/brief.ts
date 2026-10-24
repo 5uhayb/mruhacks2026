@@ -4,7 +4,7 @@ import { formatCompact, formatInt, formatMoney, formatNumber, formatPct } from '
 export const LIMITATIONS = [
   'Assumes new power can reach homes through the grid; transmission and connection upgrades are not modelled.',
   'Storage for solar beyond daytime demand is not costed.',
-  'Sector returns (rail, tourism & industry) and fuel reform effects use editable planning estimates, not measurements.',
+  'Sector returns (transportation, tourism & economy) and fuel reform effects use editable planning estimates, not measurements.',
   'Governance: the money has to reach the projects; weak institutions raise costs and delays.',
   'Fuel price reform ignores changes in how much fuel people buy; the current pump price is a placeholder to set per country.',
   'The impact model cannot predict declines in electricity access.',
@@ -33,7 +33,7 @@ export function buildBrief(args: {
   const endYear = startYear + 10
   const total = args.split.solar + args.split.rail + args.split.industry + args.split.fund || 1
   const pct = (k: keyof Split) => formatPct((args.split[k] / total) * 100, 0)
-  const SECTOR_NAMES: Record<keyof Split, string> = { solar: 'Power (solar)', rail: 'Transport (rail)', industry: 'Tourism & industry', fund: 'Savings fund' }
+  const SECTOR_NAMES: Record<keyof Split, string> = { solar: 'Power (Solar & Grid)', rail: 'Transportation', industry: 'Tourism & Economy', fund: 'Savings Fund' }
   const sectorLines = (Object.keys(SECTOR_NAMES) as (keyof Split)[]).map((k) => {
     const e = sim.sectors[k]
     return `- **${SECTOR_NAMES[k]}:** ${k === 'fund' ? 'saved' : 'invested'} ${formatMoney(e.capex)}; returns ${formatMoney(e.annual_return)}/yr by ${endYear}; payback ${e.payback != null ? `${formatNumber(e.payback, 1)} years` : 'none needed (capital stays liquid)'}. ${e.basis}.`
@@ -82,14 +82,14 @@ export function buildBrief(args: {
     '',
     '## Scenario settings',
     `- Invest ${formatPct(sim.share * 100, 0)} of ${c.resource} income: ${formatMoney(sim.pool, 2)} a year.`,
-    `- Split: power ${pct('solar')} (${formatMoney(sim.split_amounts.solar, 2)}), transport ${pct('rail')} (${formatMoney(sim.split_amounts.rail, 2)}), tourism & industry ${pct('industry')} (${formatMoney(sim.split_amounts.industry, 2)}), savings ${pct('fund')} (${formatMoney(sim.split_amounts.fund, 2)}) a year.`,
+    `- Split: power ${pct('solar')} (${formatMoney(sim.split_amounts.solar, 2)}), transportation ${pct('rail')} (${formatMoney(sim.split_amounts.rail, 2)}), tourism & economy ${pct('industry')} (${formatMoney(sim.split_amounts.industry, 2)}), savings ${pct('fund')} (${formatMoney(sim.split_amounts.fund, 2)}) a year.`,
     `- Solar sourcing: ${sim.supply.label} (build cost ×${formatNumber(sim.supply.capex_mult, 2)}). ${sim.supply.note}`,
     sim.low_resource.is_low ? `- Resource income is a small share of this economy (${formatPct(sim.low_resource.rents_pct_gdp)} of GDP), so this plan has limited impact here.` : '',
     '',
     `## Results by ${endYear} (estimates)`,
     `- Solar built: ${formatCompact(y.solar_mw, 'MW')}; ${homes}.`,
     `- Electricity access: ${formatPct(y.access_pct)}. Clean electricity: ${formatPct(y.renewable_pct)}.`,
-    `- Rail: ${rail}.`,
+    `- Transportation: ${rail}.`,
     `- Savings fund: ${formatMoney(y.fund)}, about ${formatNumber(sim.months_covered, 1)} months of ${c.resource} income.`,
     '',
     `## Sectors: cost, yearly return and payback (estimates)`,

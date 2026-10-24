@@ -16,19 +16,19 @@ FARM_MW = 500
 
 # Every assumption the model uses: default, range, unit, and what it means. Editable in the app.
 ASSUMPTIONS = {
-    "solar_capex_per_mw": {"group": "Power (solar)", "value": 800_000, "min": 600_000, "max": 1_100_000, "unit": "$/MW", "label": "Solar build cost",
+    "solar_capex_per_mw": {"group": "Power (Solar & Grid)", "value": 800_000, "min": 600_000, "max": 1_100_000, "unit": "$/MW", "label": "Solar build cost",
                            "note": "Cost to build 1 MW of utility-scale solar, including grid connection."},
-    "solar_om_per_mw": {"group": "Power (solar)", "value": 15_000, "min": 8_000, "max": 25_000, "unit": "$/MW/yr", "label": "Solar running cost",
+    "solar_om_per_mw": {"group": "Power (Solar & Grid)", "value": 15_000, "min": 8_000, "max": 25_000, "unit": "$/MW/yr", "label": "Solar running cost",
                         "note": "Yearly operations and maintenance per MW."},
-    "performance_ratio": {"group": "Power (solar)", "value": 0.80, "min": 0.75, "max": 0.85, "unit": "ratio", "label": "Performance ratio",
+    "performance_ratio": {"group": "Power (Solar & Grid)", "value": 0.80, "min": 0.75, "max": 0.85, "unit": "ratio", "label": "Performance ratio",
                           "note": "Share of the sun's energy that reaches the grid after heat, dust and wiring losses."},
-    "degradation": {"group": "Power (solar)", "value": 0.005, "min": 0.003, "max": 0.008, "unit": "/yr", "label": "Panel degradation",
+    "degradation": {"group": "Power (Solar & Grid)", "value": 0.005, "min": 0.003, "max": 0.008, "unit": "/yr", "label": "Panel degradation",
                     "note": "Panels lose a little output every year."},
-    "project_life": {"group": "Power (solar)", "value": 25, "min": 20, "max": 30, "unit": "years", "label": "Project life",
+    "project_life": {"group": "Power (Solar & Grid)", "value": 25, "min": 20, "max": 30, "unit": "years", "label": "Project life",
                      "note": "How long the farm keeps producing."},
-    "heat_rate": {"group": "Power (solar)", "value": 9.5, "min": 7.5, "max": 11.0, "unit": "MMBtu/MWh", "label": "Fuel per MWh replaced",
+    "heat_rate": {"group": "Power (Solar & Grid)", "value": 9.5, "min": 7.5, "max": 11.0, "unit": "MMBtu/MWh", "label": "Fuel per MWh replaced",
                   "note": "Fuel burned per MWh by the plants solar replaces. Older oil and gas units burn more."},
-    "fuel_value": {"group": "Power (solar)", "value": 9.0, "min": 5.0, "max": 14.0, "unit": "$/MMBtu", "label": "Fuel export value",
+    "fuel_value": {"group": "Power (Solar & Grid)", "value": 9.0, "min": 5.0, "max": 14.0, "unit": "$/MMBtu", "label": "Fuel export value",
                    "note": "Solar's value is the export value of the oil or gas no longer burned at home. $9/MMBtu is roughly oil at $52/bbl."},
     "residential_share": {"group": "Homes & demand", "value": 0.35, "min": 0.15, "max": 0.6, "unit": "ratio", "label": "Homes' share of electricity",
                           "note": "Share of a country's electricity used by homes; the rest goes to business and industry. "
@@ -37,9 +37,9 @@ ASSUMPTIONS = {
                        "note": "Used to count households (population ÷ this). Default is an approximate regional average; Libya 6."},
     "kwh_per_new_person": {"group": "Homes & demand", "value": 1_000, "min": 500, "max": 2_000, "unit": "kWh/yr", "label": "Use per new connection",
                            "note": "Electricity needed per person newly connected to the grid."},
-    "rail_cost_per_km": {"group": "Transport (rail)", "value": 15_000_000, "min": 8_000_000, "max": 30_000_000, "unit": "$/km", "label": "Rail build cost",
+    "rail_cost_per_km": {"group": "Transportation", "value": 15_000_000, "min": 8_000_000, "max": 30_000_000, "unit": "$/km", "label": "Transportation build cost (rail corridor)",
                          "note": "Conventional intercity rail. Used to turn the rail allocation into kilometres."},
-    "rail_route_factor": {"group": "Transport (rail)", "value": 1.25, "min": 1.1, "max": 1.4, "unit": "x", "label": "Route length factor",
+    "rail_route_factor": {"group": "Transportation", "value": 1.25, "min": 1.1, "max": 1.4, "unit": "x", "label": "Route length factor",
                           "note": "Track runs longer than the straight line between two cities."},
     "base_discount_rate": {"group": "Cost of capital", "value": 0.06, "min": 0.04, "max": 0.08, "unit": "rate", "label": "Base cost of capital",
                            "note": "Yearly return investors need on solar in a low-risk country such as Norway."},
@@ -47,19 +47,19 @@ ASSUMPTIONS = {
                                "note": "Extra yearly return investors need per point the World Bank government-effectiveness score sits below Norway's."},
     "fund_return": {"group": "Savings fund", "value": 0.05, "min": 0.03, "max": 0.07, "unit": "rate", "label": "Fund real return",
                     "note": "Yearly real return of the savings fund, invested in a diversified global portfolio."},
-    "solar_build_years": {"group": "Power (solar)", "value": 1, "min": 1, "max": 3, "unit": "years", "label": "Solar build time",
+    "solar_build_years": {"group": "Power (Solar & Grid)", "value": 1, "min": 1, "max": 3, "unit": "years", "label": "Solar build time",
                           "note": "Years from funding to a working solar farm."},
-    "rail_build_years": {"group": "Transport (rail)", "value": 2, "min": 1, "max": 5, "unit": "years", "label": "Rail build time",
+    "rail_build_years": {"group": "Transportation", "value": 2, "min": 1, "max": 5, "unit": "years", "label": "Transportation build time",
                          "note": "Years from funding to an open rail line."},
     # ---- Every value below is an editable planning estimate, not a measurement ----
-    "rail_benefit_per_km": {"group": "Transport (rail)", "value": 1_200_000, "min": 300_000, "max": 3_000_000, "unit": "$/km/yr",
-                            "label": "Rail economic return (estimate)",
+    "rail_benefit_per_km": {"group": "Transportation", "value": 1_200_000, "min": 300_000, "max": 3_000_000, "unit": "$/km/yr",
+                            "label": "Transportation economic return (estimate)",
                             "note": "Yearly freight and passenger cost savings per km of open line. Counts only once a section is open."},
-    "industry_return": {"group": "Tourism & industry", "value": 0.12, "min": 0.04, "max": 0.25, "unit": "rate",
-                        "label": "Tourism & industry return (estimate)",
+    "industry_return": {"group": "Tourism & Economy", "value": 0.12, "min": 0.04, "max": 0.25, "unit": "rate",
+                        "label": "Tourism & Economy return (estimate)",
                         "note": "Yearly economic value added per dollar invested in tourism and non-oil industry (hotels, logistics, processing)."},
-    "industry_build_years": {"group": "Tourism & industry", "value": 2, "min": 1, "max": 4, "unit": "years",
-                             "label": "Tourism & industry build time (estimate)", "note": "Years from funding to operating businesses."},
+    "industry_build_years": {"group": "Tourism & Economy", "value": 2, "min": 1, "max": 4, "unit": "years",
+                             "label": "Tourism & Economy build time (estimate)", "note": "Years from funding to operating businesses."},
     "import_premium": {"group": "Solar sourcing", "value": 0.08, "min": 0.0, "max": 0.25, "unit": "rate",
                        "label": "Import tariff & logistics (estimate)",
                        "note": "Added to solar build cost when modules are imported from certified Tier-1 OEMs."},
@@ -89,7 +89,7 @@ ASSUMPTIONS = {
                                  "label": "Household spending, share of GDP (estimate)",
                                  "note": "Used only when the World Bank has no household consumption figure for the country."},
     "rail_freight_relief": {"group": "Fuel price reform", "value": 0.2, "min": 0.0, "max": 0.5, "unit": "ratio",
-                            "label": "Rail freight cost relief (estimate)",
+                            "label": "Freight cost relief after the corridor opens (estimate)",
                             "note": "Share of the passed-on transport cost avoided once the rail corridor is complete (not before)."},
     "cpi_warning": {"group": "Fuel price reform", "value": 0.03, "min": 0.01, "max": 0.1, "unit": "rate",
                     "label": "Inflation warning threshold", "note": "Show a warning when the reform adds more than this to consumer prices in a year."},
@@ -563,7 +563,7 @@ def goals_meta(ctx: dict) -> list[dict]:
         {"key": "goal_power", "label": "Power for everyone", "target": "100% have electricity"},
         {"key": "goal_clean", "label": "Clean electricity", "target": "50% from renewables"},
         {"key": "goal_savings", "label": "Crash-proof savings", "target": "1 year of oil money saved"},
-        {"key": "goal_rail", "label": "Rail link", "target": rail},
+        {"key": "goal_rail", "label": "Transport corridor", "target": rail},
     ]
 
 
@@ -621,7 +621,7 @@ def revenue_history_years(iso3: str) -> str:
 SHOCKS = {
     "oil_price": {"label": "Oil price crash", "detail": "Oil and gas prices stay 40% lower for all 10 years."},
     "shutdown": {"label": "Production shutdown", "detail": "Oil output falls 70% for one year, then recovers."},
-    "capex": {"label": "Costs run over budget", "detail": "Solar farms and rail cost 25% more to build."},
+    "capex": {"label": "Costs run over budget", "detail": "Solar farms and transport projects cost 25% more to build."},
 }
 
 FUNDED_TOLERANCE = 0.10  # a plan stays funded if no more than 10% of planned project spending is missed

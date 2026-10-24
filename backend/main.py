@@ -7,6 +7,8 @@ and ml/models/; nothing calls an external service at runtime."""
 import json
 import time
 from contextlib import asynccontextmanager
+from functools import lru_cache
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -48,6 +50,10 @@ async def lifespan(_: FastAPI):
     twins("LBY")
     simulate(SimulateRequest(iso3="LBY"))
     differences.typical_change()
+    compute_presets("LBY", 0.1, "import")
+    # Warm the presets of every revitalization target in the background, so clicking them is instant too
+    threading.Thread(target=lambda: [compute_presets(c.iso3, 0.1, "import") for c in world().countries if c.target],
+                     daemon=True).start()
     print(f"Models loaded in {time.time() - start:.1f}s · {len(ML['twins'].windows)} twin windows · Libya preloaded")
     yield
 
@@ -268,6 +274,7 @@ class Twins(BaseModel):
     twins: list[dict]
     forecast: list[dict]
     windows_searched: int
+    rule: str
     meta: Meta
 
 
@@ -278,8 +285,16 @@ def twins(iso3: str):
     t = ML["twins"].find(iso3)
     if t is None:
         raise HTTPException(404, f"Not enough history to find twins for {iso3}")
+    for tw in t["twins"]:
+        oil = differences.value_at(tw["iso3"], "oil_rents_pct_gdp", tw["year"])
+        tw["turnaround"] = differences.is_turnaround(tw["access"], tw["gdp_per_capita"])
+        tw["oil_share_then"] = oil[0] if oil else None
+        tw["changed"] = differences.biggest_shift(tw["iso3"], tw["year"])
+        tw["access_change"] = tw["access"][-1] - tw["access"][0]
+        tw["income_change"] = (tw["gdp_per_capita"][-1] / tw["gdp_per_capita"][0] - 1) * 100
     ms = (time.time() - start) * 1000
     return Twins(**{k: t[k] for k in ["year", "access_now", "gdp_now", "population_now", "twins", "forecast", "windows_searched"]},
+                 rule=differences.TURNAROUND_RULE,
                  meta=Meta(detail=f"DTW over {t['windows_searched']:,} country-year windows · {len(t['twins'])} matches", server_ms=ms))
 
 
@@ -460,71 +475,76 @@ def simulate(req: SimulateRequest):
     )
 
 
-class Optimized(BaseModel):
-    split: dict[str, int]
-    p_funded: float
-    access_y10: float
-    feasible: bool
+class Presets(BaseModel):
+    presets: dict[str, dict]
+    playbook_peer: str | None
     plans_tested: int
-    min_funded: float
-    preset: str
-    preset_label: str
-    rationale: str
+    share: float
     meta: Meta
 
 
-def rationale(req: SimulateRequest, best: dict, ctx: dict, a: dict, kwh: float, futures: np.ndarray) -> str:
-    """One sentence on why the preset chose this split, built from the model's own results."""
-    s = best["split"]
-    r = model.simulate(ctx, a, req.share, model.normalize(s), kwh, futures, supply=req.supply)
-    med = lambda k: float(np.median(r[k][:, -1]))  # noqa: E731
-    word = model.resource_word(req.iso3)
+def preset_line(key: str, p: dict, ctx: dict, econ: dict, end_year: int) -> str:
+    """At most 15 words on why the preset chose its split, from the model's own results."""
     route = ctx["route"]
-    econ = model.sector_economics(a, r, kwh, req.supply)
-    months = med("fund") / (ctx["base_revenue"] / 12) if ctx["base_revenue"] else 0
-    p = best["p_funded"]
-    lead = "" if best["feasible"] else "No split keeps spending on track in 80% of futures at this level, so this is the most robust one. "
-    if req.preset == "power":
-        body = (f"Puts {s['solar']}% into solar, the fastest way to connect people here: {med('access_pct'):.0f}% have electricity by year 10 "
-                f"in the median future." if ctx["access0"] < 99 else
-                f"Puts {s['solar']}% into solar: access is already {ctx['access0']:.1f}%, so the gain is cleaner power, "
-                f"{med('renewable_pct'):.1f}% clean by year 10 in the median future.")
-    elif req.preset == "mobility":
-        km = min(med("rail_km"), route["km"])
-        body = (f"Puts {s['rail']}% into transport: {km:,.0f} of {route['km']:,.0f} km of rail open by year 10"
-                + (", the full corridor; more rail money would sit idle, so the rest goes elsewhere." if km >= route["km"] - 1 else "."))
-    elif req.preset == "growth":
-        body = (f"Puts {s['industry']}% into tourism and non-oil industry, the highest non-oil return per dollar under current assumptions "
-                f"({100 / econ['industry']['payback']:.0f}%/yr vs {100 / econ['rail']['payback']:.0f}%/yr for rail): about "
-                f"{notes.money(med('industry_value') + med('rail_value'))} a year of new activity by year 10. Solar's return is "
-                f"{word} sold abroad instead of burned, so it counts toward Power, not Growth.")
-    elif req.preset == "resilience":
-        body = (f"Saves {s['fund']}%: the fund holds about {months:.0f} months of {word} income by year 10, and at least 90% "
-                f"of planned spending happens in {p:.0%} of futures.")
-    else:
-        body = (f"Gives every sector at least 10% and weighs access, rail, non-oil returns and savings equally: "
-                f"{med('access_pct'):.0f}% access, {min(med('rail_km'), route['km']):,.0f} km of rail, "
-                f"{notes.money(med('industry_value') + med('rail_value'))} a year of non-oil activity and {months:.0f} months saved by year 10.")
-    return lead + body
+    if key == "power":
+        return (f"Most to Power: fastest route to {p['access_y10']:.0f}% electricity access by {end_year}." if ctx["access0"] < 99
+                else f"Most to Power: clean electricity reaches {p['clean_y10']:.0f}% by {end_year}.")
+    if key == "mobility":
+        km = min(p["rail_km_y10"], route["km"])
+        if not route["from"]:
+            return f"Most to Transportation: {km:,.0f} km of new freight lines by {end_year}."
+        return (f"Most to Transportation: full {route['km']:,.0f} km corridor by {end_year}." if km >= route["km"] - 1
+                else f"Most to Transportation: {km:,.0f} of {route['km']:,.0f} km corridor by {end_year}.")
+    if key == "growth":
+        return f"Most to Tourism & Economy: best non-oil return per dollar ({100 / econ['industry']['payback']:.0f}%/yr)."
+    return "Every sector between 10% and 50%, weighing all four goals equally."
 
 
-@app.post("/api/optimize", response_model=Optimized)
-def optimize(req: SimulateRequest):
-    """Best power / transport / industry / savings split at the chosen investment level for a priority preset,
-    while at least 90% of planned spending happens in ≥80% of futures."""
-    check(req.iso3)
-    if req.preset not in ml_optimize.PRESETS:
-        raise HTTPException(422, f"Unknown preset {req.preset}")
+@lru_cache(maxsize=256)
+def compute_presets(iso3: str, share: float, supply: str) -> dict:
+    """All presets for a country at one investment level (default assumptions), plus the peer playbook."""
+    a = model.params(iso3=iso3)
+    ctx = model.context(iso3, a)
+    kwh = float(model.sites_for(iso3).iloc[0].solar_kwh_m2_day)
+    futures = model.revenue_scenarios(iso3, 500)
+    out = ml_optimize.all_presets(ctx, a, share, kwh, futures, supply)
+    econ = model.sector_economics(a, model.simulate(ctx, a, share, model.normalize(out["presets"]["balanced"]["split"]), kwh,
+                                                    np.ones((1, model.YEARS)), supply=supply), kwh, supply)
+    end_year = (model.latest(iso3)["electricity_access_pct_year"] or 2024) + 10
+    for key, p in out["presets"].items():
+        p["line"] = preset_line(key, p, ctx, econ, end_year)
+        if not p["feasible"]:
+            p["note"] = "No split keeps 90% of spending on track in 80% of futures here; this is the most robust."
+    peer = best_peer(iso3)
+    out["playbook_peer"] = None
+    if peer:
+        pb = differences.playbook(peer, out["presets"]["balanced"]["split"], kwh, ctx["access0"])
+        out["presets"]["playbook"] = {"split": pb["split"], "label": f"{peer['country']}'s playbook", "line": pb["explanation"],
+                                      "peer": peer["iso3"], "peer_name": peer["country"], "peer_year": peer["year"],
+                                      "rule": differences.playbook.__doc__.split("Heuristic: ")[1].replace("\n    ", " ").strip()}
+        out["playbook_peer"] = peer["iso3"]
+    return out
+
+
+def best_peer(iso3: str) -> dict | None:
+    """The most similar twin that is a turnaround peer, if any."""
+    t = ML["twins"].find(iso3)
+    peers = [tw for tw in (t or {}).get("twins", []) if differences.is_turnaround(tw["access"], tw["gdp_per_capita"])]
+    return max(peers, key=lambda tw: tw["similarity"]) if peers else None
+
+
+@app.get("/api/presets/{iso3}", response_model=Presets)
+def presets(iso3: str, share: float = 0.10, supply: str = "import"):
+    """Every preset split for a country, computed in one pass over all realistic splits and cached,
+    so clicking a preset in the app is instant."""
+    check(iso3)
+    if supply not in model.SUPPLY:
+        raise HTTPException(422, f"Unknown supply {supply}")
     start = time.time()
-    a = model.params(req.assumptions, req.iso3)
-    ctx = model.context(req.iso3, a)
-    kwh = float(model.sites_for(req.iso3).iloc[0].solar_kwh_m2_day)
-    futures = model.revenue_scenarios(req.iso3, 500)
-    best = ml_optimize.best_plan(ctx, a, req.share, kwh, futures, req.preset, req.supply)
-    ms = (time.time() - start) * 1000
-    return Optimized(**best, rationale=rationale(req, best, ctx, a, kwh, futures), meta=Meta(
-        detail=f"{best['preset_label']} · grid search · {best['plans_tested']} splits × 500 futures · "
-               f"funded in {best['p_funded']:.0%}", server_ms=ms))
+    out = compute_presets(iso3, round(min(0.3, max(0.0, share)), 2), supply)
+    return Presets(**out, share=share, meta=Meta(
+        detail=f"{len(out['presets'])} presets · {out['plans_tested']} splits (10–50% each) × 500 futures · cached",
+        server_ms=(time.time() - start) * 1000))
 
 
 @app.get("/api/assumptions")

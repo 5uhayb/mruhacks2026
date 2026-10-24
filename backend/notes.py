@@ -30,4 +30,4 @@ def shock(name: str, before: dict, after: dict, iso3: str) -> str:
                          f"{drop['from']['year']} to {money(drop['to']['revenue'])} in {drop['to']['year']}.")
         return text
     lost = 1 - after["solar_mw"] / max(before["solar_mw"], 1)
-    return f"When everything costs 25% more, the same money builds {lost:.0%} less solar and rail."
+    return f"When everything costs 25% more, the same money builds {lost:.0%} less solar and transport."

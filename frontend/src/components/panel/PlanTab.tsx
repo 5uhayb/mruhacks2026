@@ -1,15 +1,16 @@
 import { useState, type ReactNode } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { PRESETS, SECTORS, type AssumptionSpec, type Country, type Optimized, type Preset, type ReformInput, type Sector, type Simulation, type Split, type Supply } from '../../api'
+import { PRESETS, SECTORS, type AssumptionSpec, type Country, type Preset, type Presets, type ReformInput, type Sector, type Simulation, type Split, type Supply } from '../../api'
 import { formatCompact, formatInt, formatMoney, formatNumber, formatPct } from '../../lib/format'
-import { CountUp, Section } from '../ui'
+import { CountUp, Info, Section } from '../ui'
 import SplitBar, { SECTOR_STYLE } from './SplitBar'
 import { fitDomain } from './TwinsTab'
 
 const AXIS = { stroke: '#4b5468', fontSize: 11, tickLine: false, axisLine: false, fontFamily: 'Geist Mono Variable' }
 export const GRID_NOTE = 'Assumes new power can reach homes through the grid; transmission and connection upgrades are not modelled.'
 export const DEFAULT_REFORM: ReformInput = { target_price: 0.6, phase_years: 5, rebate_share: 0.5, add_to_plan: true }
-const PRESET_LABEL: Record<Preset, string> = { balanced: 'Balanced', power: 'Power', mobility: 'Mobility', growth: 'Growth', resilience: 'Resilience' }
+const PRESET_LABEL: Record<Preset, string> = { playbook: 'Peer Playbook', balanced: 'Balanced', power: 'Power', mobility: 'Mobility', growth: 'Growth' }
+const PRESET_HOW = 'Presets search every split with each sector between 10% and 50% (5% steps) across 500 futures, at default assumptions, and keep 90% of spending on track in at least 80% of futures. Drag the handles to go beyond these bounds.'
 
 function Assumptions({ specs, overrides, setOverrides, countryDefaults }: {
   specs: Record<string, AssumptionSpec>
@@ -220,7 +221,7 @@ function ReformAndSupply({ sim, startYear, supply, setSupply, reform, setReform,
   )
 }
 
-export default function PlanTab({ country, sim, share, setShare, split, setSplit, onPreset, optimizing, optimized, specs, overrides, setOverrides, supply, setSupply, reform, setReform }: {
+export default function PlanTab({ country, sim, share, setShare, split, setSplit, onPreset, presets, activePreset, specs, overrides, setOverrides, supply, setSupply, reform, setReform }: {
   country: Country
   sim: Simulation | null
   share: number
@@ -228,8 +229,8 @@ export default function PlanTab({ country, sim, share, setShare, split, setSplit
   split: Split
   setSplit: (s: Split) => void
   onPreset: (p: Preset) => void
-  optimizing: Preset | null
-  optimized: Optimized | null
+  presets: Presets | null
+  activePreset: Preset | null
   specs: Record<string, AssumptionSpec>
   overrides: Record<string, number>
   setOverrides: (o: Record<string, number>) => void
@@ -250,7 +251,8 @@ export default function PlanTab({ country, sim, share, setShare, split, setSplit
   const domain = fitDomain(chart.flatMap((c) => [c.plan, c.none]))
   const h = sim?.homes
   const rail = sim?.rail
-  const matches = optimized && SECTORS.every((k) => Math.abs(optimized.split[k] - split[k]) < 0.5)
+  const active = activePreset ? presets?.presets[activePreset] : null
+  const matches = !!active && SECTORS.every((k) => Math.abs(active.split[k] - split[k]) < 0.5)
 
   return (
     <>
@@ -265,21 +267,22 @@ export default function PlanTab({ country, sim, share, setShare, split, setSplit
             Resource income is a small share of this economy ({formatPct(sim.low_resource.rents_pct_gdp)} of GDP), so this plan has limited impact here.
           </p>
         )}
-        <div className="mt-4 flex flex-wrap items-center gap-1.5" role="group" aria-label="Priority presets">
-          <span className="label mr-1">Priority</span>
-          {PRESETS.map((p) => (
-            <button key={p} onClick={() => onPreset(p)} disabled={optimizing != null}
-              className={`rounded-full border px-3 py-1 text-[0.8rem] transition-colors disabled:opacity-60 ${optimized?.preset === p && matches ? 'border-gold text-gold bg-gold/10' : 'border-edge text-mute hover:text-ink hover:border-mute'}`}>
-              {optimizing === p ? 'Searching…' : PRESET_LABEL[p]}
-            </button>
-          ))}
+        <div className="mt-4 flex flex-wrap items-center gap-1.5" role="group" aria-label="Presets">
+          {PRESETS.map((p) => {
+            const r = presets?.presets[p]
+            if (p === 'playbook' && presets && !r) return null
+            return (
+              <button key={p} onClick={() => onPreset(p)} disabled={!r} title={r?.line}
+                className={`rounded-full border px-3 py-1 text-[0.8rem] transition-colors disabled:opacity-50 ${activePreset === p && matches ? 'border-gold text-gold bg-gold/10' : 'border-edge text-mute hover:text-ink hover:border-mute'}`}>
+                {PRESET_LABEL[p]}
+              </button>
+            )
+          })}
+          <Info text={presets?.presets.playbook?.rule ? `${PRESET_HOW} Peer Playbook: ${presets.presets.playbook.rule}` : PRESET_HOW} />
         </div>
-        {optimized && (
-          <p className="text-mute mt-2 text-[0.8rem] leading-snug">
-            <span className="text-ink">{optimized.preset_label}:</span> {optimized.rationale}{' '}
-            <span className="text-faint">({formatInt(optimized.plans_tested)} splits tested; ≥90% of spending on track in {formatPct(optimized.p_funded * 100, 0)} of 500 futures{matches ? '' : '; split edited since'}.)</span>
-          </p>
-        )}
+        <p className="text-mute mt-2 min-h-[1.2em] text-[0.8rem] leading-snug">
+          {active && matches ? active.line : presets ? 'Pick a preset, or drag the handles.' : 'Preparing presets…'}
+        </p>
         <SplitBar split={split} setSplit={setSplit} amounts={sim?.split_amounts ?? null} />
       </Section>
 

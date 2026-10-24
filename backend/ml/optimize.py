@@ -1,5 +1,6 @@
-"""Find the best plan: search budget splits (power / transport / tourism & industry / savings) at the chosen
-investment level for a priority preset, while staying fully funded in at least 80% of futures."""
+"""Preset splits: one pass over every realistic 4-sector split (each sector 10–50%, 5% steps) scores all
+presets at once, so a country's presets are ready in about a second and then served from cache.
+Every preset keeps at least 90% of planned spending on track in ≥80% of futures where any split can."""
 
 from itertools import combinations
 
@@ -8,27 +9,25 @@ import numpy as np
 import model
 
 MIN_FUNDED = 0.8
-MIN_BUILD = 0.2  # a plan with almost nothing built is trivially "funded" but does nothing
+LOW, HIGH = 0.10, 0.50  # realistic bounds for a preset; users can still drag past them by hand
 OBJECTIVES = ["power", "mobility", "growth", "resilience"]
 
 # Weight on each objective (each scaled 0-1 across the candidate splits). Small weights break ties.
 PRESETS = {
-    "balanced": {"label": "Balanced", "weights": {"power": 1, "mobility": 1, "growth": 1, "resilience": 1}, "min_each": 0.10},
-    "power": {"label": "Power", "weights": {"power": 1, "mobility": 0.02, "growth": 0.02, "resilience": 0.02}, "min_each": 0.0},
-    "mobility": {"label": "Mobility", "weights": {"power": 0.02, "mobility": 1, "growth": 0.02, "resilience": 0.02}, "min_each": 0.0},
-    "growth": {"label": "Growth", "weights": {"power": 0.02, "mobility": 0.02, "growth": 1, "resilience": 0.02}, "min_each": 0.0},
-    "resilience": {"label": "Resilience", "weights": {"power": 0.02, "mobility": 0.02, "growth": 0.02, "resilience": 1}, "min_each": 0.0},
+    "balanced": {"label": "Balanced", "weights": {"power": 1, "mobility": 1, "growth": 1, "resilience": 1}},
+    "power": {"label": "Power", "weights": {"power": 1, "mobility": 0.02, "growth": 0.02, "resilience": 0.02}},
+    "mobility": {"label": "Mobility", "weights": {"power": 0.02, "mobility": 1, "growth": 0.02, "resilience": 0.02}},
+    "growth": {"label": "Growth", "weights": {"power": 0.02, "mobility": 0.02, "growth": 1, "resilience": 0.02}},
 }
 
 
-def simplex(step: float, around: np.ndarray | None = None, radius: float = 0.0, dims: int = len(model.SECTORS)) -> list[np.ndarray]:
-    """Every split of 100% into `dims` parts in multiples of `step` (optionally only those near `around`)."""
+def simplex(step: float, dims: int = len(model.SECTORS), low: float = 0.0, high: float = 1.0) -> list[np.ndarray]:
+    """Every split of 100% into `dims` parts in multiples of `step`, each part within [low, high]."""
     k = round(1 / step)
     pts = []
     for cuts in combinations(range(k + dims - 1), dims - 1):  # stars and bars
-        parts = np.diff([-1, *cuts, k + dims - 1]) - 1
-        p = parts * step
-        if around is None or np.abs(p - around).max() <= radius + 1e-9:
+        p = (np.diff([-1, *cuts, k + dims - 1]) - 1) * step
+        if p.min() >= low - 1e-9 and p.max() <= high + 1e-9:
             pts.append(p)
     return pts
 
@@ -45,27 +44,23 @@ def raw_scores(ctx: dict, a: dict, share: float, split: np.ndarray, kwh: float, 
         "growth": float((r["rail_value"] + r["industry_value"])[:, -1].mean()),
         "resilience": float(np.minimum(1.0, r["fund"][:, -1] / max(ctx["base_revenue"], 1.0)).mean() + 0.5 * r["fully_funded"].mean()),
         "access_y10": float(np.median(r["access_pct"][:, -1])),
+        "clean_y10": float(np.median(r["renewable_pct"][:, -1])),
+        "rail_km_y10": float(np.median(r["rail_km"][:, -1])),
     }
 
 
-def best_plan(ctx: dict, a: dict, share: float, kwh: float, futures: np.ndarray, preset: str = "power",
-              supply: str = "import") -> dict:
-    spec = PRESETS[preset]
-    ok_split = lambda s: s[:model.PROJECTS].sum() >= MIN_BUILD - 1e-9 and s.min() >= spec["min_each"] - 1e-9  # noqa: E731
-    coarse = [raw_scores(ctx, a, share, s, kwh, futures, supply) for s in simplex(0.05) if ok_split(s)]
-    # Scale each objective 0-1 over the coarse grid so the weights are comparable
-    span = {o: (min(c[o] for c in coarse), max(c[o] for c in coarse)) for o in OBJECTIVES}
-    objective = lambda c: sum(w * (c[o] - span[o][0]) / ((span[o][1] - span[o][0]) or 1) for o, w in spec["weights"].items())  # noqa: E731
-
-    feasible = [c for c in coarse if c["p_funded"] >= MIN_FUNDED]
-    rank = objective if feasible else (lambda c: c["p_funded"])
-    pick = max(feasible or coarse, key=rank)
-    fine = [raw_scores(ctx, a, share, s, kwh, futures, supply) for s in simplex(0.01, pick["split"], 0.03) if ok_split(s)]
-    fine_ok = [c for c in fine if c["p_funded"] >= MIN_FUNDED] if feasible else fine
-    best = max(fine_ok or [pick], key=rank)
-    return {
-        "split": dict(zip(model.SECTORS, (round(float(x) * 100) for x in best["split"]))),
-        "p_funded": best["p_funded"], "access_y10": best["access_y10"],
-        "feasible": bool(feasible), "plans_tested": len(coarse) + len(fine), "min_funded": MIN_FUNDED,
-        "preset": preset, "preset_label": spec["label"],
-    }
+def all_presets(ctx: dict, a: dict, share: float, kwh: float, futures: np.ndarray, supply: str = "import") -> dict:
+    grid = [raw_scores(ctx, a, share, s, kwh, futures, supply) for s in simplex(0.05, low=LOW, high=HIGH)]
+    span = {o: (min(c[o] for c in grid), max(c[o] for c in grid)) for o in OBJECTIVES}
+    feasible = [c for c in grid if c["p_funded"] >= MIN_FUNDED]
+    out = {}
+    for key, spec in PRESETS.items():
+        objective = lambda c: sum(w * (c[o] - span[o][0]) / ((span[o][1] - span[o][0]) or 1)  # noqa: E731
+                                  for o, w in spec["weights"].items())
+        best = max(feasible, key=objective) if feasible else max(grid, key=lambda c: c["p_funded"])
+        out[key] = {
+            "split": dict(zip(model.SECTORS, (round(float(x) * 100) for x in best["split"]))),
+            "p_funded": best["p_funded"], "feasible": bool(feasible), "label": spec["label"],
+            "access_y10": best["access_y10"], "clean_y10": best["clean_y10"], "rail_km_y10": best["rail_km_y10"],
+        }
+    return {"presets": out, "plans_tested": len(grid)}

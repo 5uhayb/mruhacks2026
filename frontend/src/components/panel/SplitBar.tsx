@@ -3,9 +3,9 @@ import { SECTORS, type Sector, type Split } from '../../api'
 import { formatMoney } from '../../lib/format'
 
 export const SECTOR_STYLE: Record<Sector, { label: string; color: string }> = {
-  solar: { label: 'Power (solar)', color: '#f2a93b' },
-  rail: { label: 'Transport (rail)', color: '#9a7a45' },
-  industry: { label: 'Tourism & industry', color: '#5ec8e5' },
+  solar: { label: 'Power (Solar & Grid)', color: '#f2a93b' },
+  rail: { label: 'Transportation', color: '#9a7a45' },
+  industry: { label: 'Tourism & Economy', color: '#5ec8e5' },
   fund: { label: 'Savings fund', color: '#4b5468' },
 }
 
@@ -67,7 +67,6 @@ export default function SplitBar({ split, setSplit, amounts }: { split: Split; s
           </div>
         ))}
       </div>
-      <p className="text-faint mt-1 text-[0.72rem]">Drag the round handles, or pick a priority above.</p>
     </div>
   )
 }

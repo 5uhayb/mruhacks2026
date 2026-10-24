@@ -102,12 +102,15 @@ def test_simulation_conserves_money():
     assert spent + r["fund"][0, -1] <= put_in + r["fund_returns"].sum() + 1
 
 
-def test_optimizer_respects_funding_rule():
-    a = model.params()
+def test_presets_respect_bounds_and_funding_rule():
+    """Every preset keeps each sector within 10-50% and stays funded in at least 80% of futures."""
+    a = model.params(iso3="NGA")
     ctx = model.context("NGA", a)
-    best = optimize.best_plan(ctx, a, 0.1, 6.0, model.revenue_scenarios("NGA", 300))
-    assert best["p_funded"] >= optimize.MIN_FUNDED
-    assert sum(best["split"].values()) == pytest.approx(100, abs=2)
+    out = optimize.all_presets(ctx, a, 0.1, 6.0, model.revenue_scenarios("NGA", 300))
+    for key, p in out["presets"].items():
+        assert sum(p["split"].values()) == pytest.approx(100, abs=1), key
+        assert all(10 <= v <= 50 for v in p["split"].values()), key
+        assert p["p_funded"] >= optimize.MIN_FUNDED, key
 
 
 # ---------- Signature facts ----------
@@ -158,11 +161,16 @@ def test_every_sector_reports_cost_return_and_payback():
     assert r["rail_value"][0, : int(a["rail_build_years"])].sum() == 0
 
 
-def test_balanced_preset_funds_all_four_sectors():
-    a = model.params(iso3="NGA")
-    ctx = model.context("NGA", a)
-    best = optimize.best_plan(ctx, a, 0.1, 6.0, model.revenue_scenarios("NGA", 200), "balanced")
-    assert all(v > 0 for v in best["split"].values())
+def test_peer_playbook_stays_in_bounds(twin_index):
+    import differences
+
+    t = twin_index.find("LBY")
+    base = {"solar": 20, "rail": 40, "industry": 10, "fund": 30}
+    for tw in t["twins"]:
+        pb = differences.playbook(tw, base, 6.5, t["access_now"])
+        assert sum(pb["split"].values()) == 100
+        assert all(10 <= v <= 50 for v in pb["split"].values())
+        assert pb["explanation"].startswith(f"Based on {tw['country']} {tw['year']}")
 
 
 def test_rebates_lower_household_cost_not_inflation():

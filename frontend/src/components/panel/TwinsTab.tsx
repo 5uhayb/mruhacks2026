@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { getTwinCompare, type ChangeSpan, type Country, type TwinCompare, type Twins } from '../../api'
-import { formatCompact, formatDelta, formatMoney, formatNumber, formatPct } from '../../lib/format'
-import { Section, Sparkline } from '../ui'
+import { getTwinCompare, type ChangeSpan, type Country, type Presets, type TwinCompare, type Twins } from '../../api'
+import { formatDelta, formatMoney, formatNumber, formatPct } from '../../lib/format'
+import { Flag, Info, Section, Sparkline } from '../ui'
 
 const compareCache = new Map<string, Promise<TwinCompare>>()
 const cachedCompare = (iso: string, twin: string) =>
@@ -67,7 +67,7 @@ export function fitDomain(values: number[]): [number, number] {
   return [lo, Math.max(hi, lo + 5)]
 }
 
-export default function TwinsTab({ country, twins }: { country: Country; twins: Twins | null }) {
+export default function TwinsTab({ country, twins, presets, onPlaybook }: { country: Country; twins: Twins | null; presets: Presets | null; onPlaybook: () => void }) {
   const [open, setOpen] = useState<string | null>(null)
   if (!twins) return <Section title="Historical twins"><p className="text-mute text-[0.85rem]">Searching history…</p></Section>
   const f = twins.forecast
@@ -80,31 +80,47 @@ export default function TwinsTab({ country, twins }: { country: Country; twins: 
   const differ = o && Math.abs(o.access_in_10 - end.access) > 5
   return (
     <>
-      <Section title="Countries that were here before" right="Matched on a 5-year path · population within 10×">
-        <ul className="space-y-2">
+      <Section title="Peer playbook" right={<Info text={`Twins: the 3 countries whose 5-year path (access, oil rents, income, clean power, urbanization, population) best matches ${country.name}'s latest 5 years, by dynamic time warping, population within 10×. Similarity 100% = identical path; a typical closest match scores about 37%. ${twins.rule}`} />}>
+        <ul className="space-y-2.5">
           {twins.twins.map((t) => {
-            const change = (t.gdp_per_capita[t.gdp_per_capita.length - 1] / t.gdp_per_capita[0] - 1) * 100
             const isOpen = open === t.iso3
+            const best = presets?.playbook_peer === t.iso3
             return (
-              <li key={t.iso3}>
-                <button onClick={() => setOpen(isOpen ? null : t.iso3)} aria-expanded={isOpen}
-                  className={`flex w-full items-center gap-4 rounded-md border px-2 py-2 text-left transition-colors ${isOpen ? 'border-cyan/50 bg-cyan/5' : 'hover:border-edge border-transparent'}`}>
-                  <div className="num text-cyan w-12 text-[1.2rem]">{Math.round(t.similarity)}%</div>
-                  <div className="flex-1">
-                    <div className="text-[0.95rem]">{t.country} <span className="text-mute">in {t.year} · population {formatCompact(t.population_then)}</span></div>
-                    <div className="text-mute text-[0.78rem]">
-                      {t.year}–{t.year + 10}: access {formatPct(t.access[0])} → {formatPct(t.access[t.access.length - 1])} · income per person {formatDelta(change)}
+              <li key={t.iso3} className={`rounded-md border ${best ? 'border-gold/50' : 'border-edge'}`}>
+                <button onClick={() => setOpen(isOpen ? null : t.iso3)} aria-expanded={isOpen} className="flex w-full items-start gap-3 p-3 text-left">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 text-[0.95rem]">
+                      <Flag iso3={t.iso3} /><span className="font-medium">{t.country}</span>
+                      <span title={twins.rule} className={`rounded px-1.5 py-0.5 text-[0.68rem] ${t.turnaround ? 'bg-cyan/15 text-cyan' : 'bg-edge text-mute'}`}>
+                        {t.turnaround ? 'Turnaround peer' : 'Stagnated peer'}
+                      </span>
+                    </div>
+                    <div className="num text-mute mt-1 text-[0.76rem]">
+                      {Math.round(t.similarity)}% match · {t.year} · access {formatPct(t.access_then, 0)} · oil {t.oil_share_then != null ? `${formatPct(t.oil_share_then, 0)} of GDP` : 'no data'}
+                    </div>
+                    <div className="mt-0.5 text-[0.84rem]">{t.changed}</div>
+                    <div className="text-mute mt-0.5 text-[0.78rem]">
+                      Result: access {formatDelta(t.access_change, ' pts')} · income per person {formatDelta(t.income_change)}
                     </div>
                   </div>
                   <Sparkline points={t.access.map((v, i) => ({ year: t.year + i, value: v }))} color="#5ec8e5" unit="%" />
-                  <span className="text-mute w-4 text-[0.8rem]">{isOpen ? '▴' : '▾'}</span>
+                  <span className="text-mute w-3 text-[0.8rem]">{isOpen ? '▴' : '▾'}</span>
                 </button>
-                {isOpen && <Compare country={country} twin={t.iso3} />}
+                {best && (
+                  <div className="px-3 pb-3">
+                    <button onClick={onPlaybook} className="border-gold text-gold hover:bg-gold hover:text-space rounded-md border px-3 py-1.5 text-[0.82rem] transition-colors">
+                      Use {t.country}'s playbook →
+                    </button>
+                  </div>
+                )}
+                {isOpen && <div className="px-3 pb-3"><Compare country={country} twin={t.iso3} /></div>}
               </li>
             )
           })}
         </ul>
-        <p className="text-faint mt-3 text-[0.75rem]">Click a twin to see what it did differently. Similarity: 100% means an identical path; a typical country's closest match scores about 37%.</p>
+        <p className="text-faint mt-3 text-[0.75rem]">
+          {presets && !presets.playbook_peer ? 'No turnaround peer among the closest matches, so no playbook.' : 'Click a peer to compare it with ' + country.name + '.'}
+        </p>
       </Section>
 
       <Section title="If nothing changes: two independent methods">
@@ -120,15 +136,9 @@ export default function TwinsTab({ country, twins }: { country: Country; twins: 
             <div className="text-mute text-[0.78rem]">{modelYear ? `by ${modelYear} · test error ±${formatNumber(country.model_card.under_95.mae, 1)} pts` : 'not enough data'}</div>
           </div>
         </div>
-        {differ && (
-          <p className="text-mute mt-2 text-[0.78rem] leading-snug">
-            They differ because the twins copy what three similar countries actually did next, while the model averages patterns across {country.model_card.countries} countries.
-          </p>
-        )}
-        <p className="mt-4 text-[0.92rem] leading-snug">
-          Following its twins, electricity access would be about <span className="num text-cyan">{formatPct(end.access)}</span> by {end.year}{' '}
-          ({formatDelta(end.access - twins.access_now, ' pts', 1)} vs today's {formatPct(twins.access_now)}), and income per person about{' '}
-          {formatMoney(end.gdp)} ({formatDelta(gdpChange)} vs today's {formatMoney(twins.gdp_now)}).
+        <p className="mt-3 text-[0.9rem] leading-snug">
+          Following its twins: access <span className="num text-cyan">{formatPct(end.access)}</span>, income per person {formatMoney(end.gdp)} ({formatDelta(gdpChange)}) by {end.year}.{' '}
+          <Info text={`Each twin's next-10-year change is applied to ${country.name} today (access ${formatPct(twins.access_now)}, income ${formatMoney(twins.gdp_now)}), weighted by similarity; the band is the range of the 3 twins.${differ ? ` The impact model differs because it averages patterns across ${country.model_card.countries} countries, while twins copy what 3 similar countries actually did.` : ''}`} />
         </p>
         <div className="mt-3 h-[150px]">
           <ResponsiveContainer width="100%" height="100%">
@@ -143,7 +153,7 @@ export default function TwinsTab({ country, twins }: { country: Country; twins: 
             </ComposedChart>
           </ResponsiveContainer>
         </div>
-        <p className="text-faint mt-1 text-[0.72rem]">Electricity access, % of people · line = weighted twin forecast · band = range of the 3 twins</p>
+        <p className="text-faint mt-1 text-[0.72rem]">Electricity access, %: line = twin forecast, band = range of the 3 twins.</p>
       </Section>
     </>
   )
