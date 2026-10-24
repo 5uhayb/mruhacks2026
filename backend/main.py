@@ -66,11 +66,41 @@ def check(iso3: str):
 
 # ---------- World: every country, for the globe ----------
 
+TARGET_RULE = ("Revitalization target: natural resource rents ≥ 10% of GDP (5-year average) AND at least one of "
+               "electricity access < 95%, access fell over 20 years, or clean electricity < 10%; "
+               "excluding high-income countries (GDP per person above $30,000).")
+
+
+def target_reasons(iso3: str) -> list[str]:
+    """Why a country is a revitalization target (empty list = not a target)."""
+    rows = model.country_rows(iso3)
+    lat = model.latest(iso3)
+    rents = rows.resource_rents_pct_gdp.dropna().tail(5).mean()
+    gdp = lat["gdp_per_capita_usd"]
+    if pd.isna(rents) or rents < 10 or gdp is None or gdp > 30_000:
+        return []
+    reasons = []
+    access = lat["electricity_access_pct"]
+    if access is not None and access < 95:
+        reasons.append(f"access {access:.0f}%")
+    acc = rows[["year", "electricity_access_pct"]].dropna()
+    if len(acc):
+        y1 = acc.year.iloc[-1]
+        earlier = acc[acc.year <= y1 - 20]
+        if len(earlier) and acc.electricity_access_pct.iloc[-1] < earlier.electricity_access_pct.iloc[-1]:
+            reasons.append("access fell over 20 years")
+    clean = lat["renewable_electricity_pct"]
+    if clean is not None and clean < 10:
+        reasons.append(f"clean electricity {clean:.2f}%" if clean < 1 else f"clean electricity {clean:.1f}%")
+    return [f"resource rents {rents:.0f}% of GDP", *reasons] if reasons else []
+
+
 class WorldCountry(BaseModel):
     iso3: str
     name: str
     hover: str
     resource: str
+    target: list[str]
     access: dict[int, float]  # year -> % with electricity (measured)
     projected: dict[int, float]  # year -> % (model projection, no plan)
 
@@ -78,6 +108,7 @@ class WorldCountry(BaseModel):
 class World(BaseModel):
     years: list[int]
     countries: list[WorldCountry]
+    target_rule: str
     meta: Meta
 
 
@@ -105,11 +136,11 @@ def world():
                 projected[proj["from_year"] + i] = proj["from"] + (proj["to"] - proj["from"]) * i / 10
         out.append(WorldCountry(
             iso3=iso3, name=str(g.country.iloc[0]), hover=sig[0]["text"] if sig else "",
-            resource=model.resource_word(iso3),
+            resource=model.resource_word(iso3), target=target_reasons(iso3),
             access={int(y): float(v) for y, v in zip(acc.year, acc.electricity_access_pct)}, projected=projected,
         ))
     years = sorted({y for c in out for y in [*c.access, *c.projected]})
-    _world_cache["data"] = World(years=years, countries=out, meta=Meta(
+    _world_cache["data"] = World(years=years, countries=out, target_rule=TARGET_RULE, meta=Meta(
         detail=f"{len(out)} countries · signatures ranked across {len(signature.LEVELS) + 1} indicators",
         server_ms=(time.time() - start) * 1000))
     return _world_cache["data"]

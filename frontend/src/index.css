@@ -99,6 +99,15 @@ input[type="text"]:focus, input[type="number"]:focus { border-color: var(--color
 }
 @keyframes pulse { from { transform: scale(0.6); opacity: 0.9; } to { transform: scale(1.8); opacity: 0; } }
 
+/* Printing prints only the brief, on white */
+@media print {
+  @page { margin: 14mm; }
+  body * { visibility: hidden !important; }
+  .brief-doc, .brief-doc * { visibility: visible !important; color: #111 !important; }
+  .brief-doc { position: absolute; inset: 0; overflow: visible !important; background: #fff !important; padding: 0 !important; }
+  .brief-backdrop, .brief-sheet { background: #fff !important; border: none !important; }
+}
+
 .globe-tip {
   background: var(--color-panel);
   border: 1px solid var(--color-edge);

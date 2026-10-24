@@ -39,10 +39,11 @@ export type WorldCountry = {
   name: string
   hover: string
   resource: string
+  target: string[]
   access: Record<string, number>
   projected: Record<string, number>
 }
-export type World = { years: number[]; countries: WorldCountry[]; meta: Meta }
+export type World = { years: number[]; countries: WorldCountry[]; target_rule: string; meta: Meta }
 
 export type Fact = { text: string; kind: string; unit: string; value: number; year: number; percentile: number; sparkline: Point[] }
 export type Factor = { label: string; value: number | null; effect: number }

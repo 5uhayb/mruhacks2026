@@ -18,11 +18,13 @@ import {
 import { CommandBar, SystemDrawer, TimeScrubber } from './components/Chrome'
 import Globe from './components/Globe'
 import CountryPanel, { TABS, type Tab } from './components/panel/CountryPanel'
+import Brief from './components/panel/Brief'
 import ModelTab from './components/panel/ModelTab'
 import PlanTab from './components/panel/PlanTab'
 import Profile from './components/panel/Profile'
 import StressTab from './components/panel/StressTab'
 import TwinsTab from './components/panel/TwinsTab'
+import { buildBrief } from './lib/brief'
 import { Boundary, accessColor, hasWebGL, loadFeatures, type CountryFeature } from './components/ui'
 
 const DEFAULT_SPLIT: Split = { solar: 40, rail: 30, fund: 30 }
@@ -59,6 +61,7 @@ function App() {
   const [year, setYear] = useState<number | null>(null)
   const [systemOpen, setSystemOpen] = useState(false)
   const [usePlan, setUsePlan] = useState(true)
+  const [briefOpen, setBriefOpen] = useState(false)
   const [country, setCountry] = useState<Country | null>(null)
   const [twins, setTwins] = useState<Twins | null>(null)
   const [sim, setSim] = useState<Simulation | null>(null)
@@ -206,7 +209,7 @@ function App() {
       )}
       {!world && <div className="text-mute absolute inset-0 grid place-items-center text-[0.9rem]">{error ?? 'Loading the world…'}</div>}
 
-      {world && <CommandBar countries={world.countries} onSelect={select} systemOpen={systemOpen} onToggleSystem={() => setSystemOpen((o) => !o)} />}
+      {world && <CommandBar countries={world.countries} targetRule={world.target_rule} onSelect={select} systemOpen={systemOpen} onToggleSystem={() => setSystemOpen((o) => !o)} />}
 
       {world && !selected && (
         <div className="fade pointer-events-none absolute top-20 left-5 z-10 max-w-[420px]">
@@ -235,7 +238,8 @@ function App() {
       </Boundary>
 
       {selected && (
-        <CountryPanel country={country} tab={tab} setTab={setTab} onClose={() => setSelected(null)}>
+        <CountryPanel country={country} tab={tab} setTab={setTab} onClose={() => setSelected(null)}
+          onExport={country && sim ? () => setBriefOpen(true) : undefined}>
           <Boundary key={`${selected}-${tab}`} label={tab}>
           {!country && <div className="text-mute p-5 text-[0.85rem]">Loading…</div>}
           {country && tab === 'Profile' && <Profile country={country} />}
@@ -248,6 +252,9 @@ function App() {
           {country && tab === 'Model' && <ModelTab country={country} twins={twins} />}
           </Boundary>
         </CountryPanel>
+      )}
+      {briefOpen && country && sim && (
+        <Brief markdown={buildBrief({ country, sim, twins, split, specs, overrides })} onClose={() => setBriefOpen(false)} />
       )}
     </main>
   )

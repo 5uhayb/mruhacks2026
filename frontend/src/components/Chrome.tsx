@@ -3,9 +3,11 @@ import type { WorldCountry } from '../api'
 import { formatPct } from '../lib/format'
 import { useLog } from '../log'
 
-/** Top bar: wordmark and country search. Cmd/Ctrl+K focuses it, Enter flies to the first match. */
-export function CommandBar({ countries, onSelect, systemOpen, onToggleSystem }: {
+/** Top bar: wordmark and country search. Cmd/Ctrl+K focuses it, Enter flies to the first match.
+ *  Revitalization targets (chosen by a data rule) are listed first, then all countries. */
+export function CommandBar({ countries, targetRule, onSelect, systemOpen, onToggleSystem }: {
   countries: WorldCountry[]
+  targetRule: string
   onSelect: (iso3: string) => void
   systemOpen: boolean
   onToggleSystem: () => void
@@ -27,14 +29,19 @@ export function CommandBar({ countries, onSelect, systemOpen, onToggleSystem }: 
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const matches = useMemo(() => {
+  const groups = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return []
-    return countries
-      .filter((c) => c.name.toLowerCase().includes(q) || c.iso3.toLowerCase() === q)
-      .sort((a, b) => Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)))
-      .slice(0, 7)
-  }, [query, countries])
+    const hit = (c: WorldCountry) => !q || c.name.toLowerCase().includes(q) || c.iso3.toLowerCase() === q
+    const order = (a: WorldCountry, b: WorldCountry) =>
+      Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)) || a.name.localeCompare(b.name)
+    const targets = countries.filter((c) => c.target.length && hit(c)).sort(order)
+    const rest = countries.filter((c) => !c.target.length && hit(c)).sort(order)
+    return [
+      { name: 'Revitalization targets', items: q ? targets.slice(0, 6) : targets, title: targetRule },
+      { name: 'All countries', items: q ? rest.slice(0, 6) : rest, title: undefined },
+    ].filter((g) => g.items.length)
+  }, [query, countries, targetRule])
+  const flat = groups.flatMap((g) => g.items)
 
   function choose(iso3: string) {
     onSelect(iso3)
@@ -49,7 +56,7 @@ export function CommandBar({ countries, onSelect, systemOpen, onToggleSystem }: 
         <span className="text-[1.15rem] font-semibold tracking-tight">Nahda</span>
         <span className="text-mute text-[1rem]" lang="ar">نهضة</span>
       </div>
-      <div className="pointer-events-auto relative w-[340px]">
+      <div className="pointer-events-auto relative w-[360px]">
         <input
           ref={input}
           type="text"
@@ -63,30 +70,41 @@ export function CommandBar({ countries, onSelect, systemOpen, onToggleSystem }: 
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           onKeyDown={(e) => {
-            if (e.key === 'ArrowDown') setActive((a) => Math.min(matches.length - 1, a + 1))
+            if (e.key === 'ArrowDown') setActive((a) => Math.min(flat.length - 1, a + 1))
             if (e.key === 'ArrowUp') setActive((a) => Math.max(0, a - 1))
-            if (e.key === 'Enter' && matches[active]) choose(matches[active].iso3)
+            if (e.key === 'Enter' && flat[active]) choose(flat[active].iso3)
             if (e.key === 'Escape') input.current?.blur()
           }}
-          className="bg-panel/90 w-full px-3 py-2 text-[0.9rem] backdrop-blur-0"
+          className="bg-panel/90 w-full px-3 py-2 text-[0.9rem]"
           aria-label="Search a country"
         />
         <kbd className="num text-faint border-edge pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border px-1.5 text-[0.7rem]">Ctrl K</kbd>
-        {open && matches.length > 0 && (
-          <ul className="bg-panel border-edge absolute top-full right-0 left-0 mt-1 overflow-hidden rounded-md border">
-            {matches.map((c, i) => (
-              <li key={c.iso3}>
-                <button
-                  onMouseDown={() => choose(c.iso3)}
-                  onMouseEnter={() => setActive(i)}
-                  className={`flex w-full items-baseline justify-between gap-3 px-3 py-2 text-left text-[0.88rem] ${i === active ? 'bg-edge' : ''}`}
-                >
-                  <span>{c.name}</span>
-                  <span className="num text-faint text-[0.72rem]">{c.iso3}</span>
-                </button>
-              </li>
+        {open && flat.length > 0 && (
+          <div className="bg-panel border-edge scroll-thin absolute top-full right-0 left-0 mt-1 max-h-[60vh] overflow-y-auto rounded-md border">
+            {groups.map((g) => (
+              <div key={g.name}>
+                <div className="label border-edge bg-panel sticky top-0 flex justify-between border-b px-3 py-1.5">
+                  <span>{g.name}</span>
+                  {g.title && <span className="cursor-help normal-case tracking-normal underline decoration-dotted" title={g.title}>rule</span>}
+                </div>
+                {g.items.map((c) => {
+                  const i = flat.indexOf(c)
+                  return (
+                    <button
+                      key={c.iso3}
+                      onMouseDown={() => choose(c.iso3)}
+                      onMouseEnter={() => setActive(i)}
+                      title={c.target.length ? c.target.join(' · ') : undefined}
+                      className={`flex w-full items-baseline justify-between gap-3 px-3 py-1.5 text-left text-[0.86rem] ${i === active ? 'bg-edge' : ''}`}
+                    >
+                      <span>{c.name}{c.target.length > 0 && <span className="text-faint ml-2 text-[0.72rem]">{c.target.slice(1).join(' · ')}</span>}</span>
+                      <span className="num text-faint text-[0.72rem]">{c.iso3}</span>
+                    </button>
+                  )
+                })}
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </div>
       <button onClick={onToggleSystem} className={`pointer-events-auto ml-auto text-[0.8rem] ${systemOpen ? 'text-ink' : 'text-mute hover:text-ink'}`}>

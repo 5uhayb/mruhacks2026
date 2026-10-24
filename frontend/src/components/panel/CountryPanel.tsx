@@ -1,14 +1,17 @@
 import type { ReactNode } from 'react'
 import type { Country } from '../../api'
 
-export const TABS = ['Profile', 'Plan', 'Twins', 'Stress', 'Model'] as const
+// Story order: where it stands → what happens if nothing changes → the plan → does it survive → how it works
+export const TABS = ['Profile', 'Twins', 'Plan', 'Stress', 'Model'] as const
 export type Tab = (typeof TABS)[number]
 
-export default function CountryPanel({ country, tab, setTab, onClose, children }: {
+export default function CountryPanel({ country, tab, setTab, onClose, onExport, children }: {
   country: Country | null
   tab: Tab
   setTab: (t: Tab) => void
   onClose: () => void
+  /** Opens the printable brief; undefined until the plan has been simulated */
+  onExport?: () => void
   children: ReactNode
 }) {
   return (
@@ -23,7 +26,12 @@ export default function CountryPanel({ country, tab, setTab, onClose, children }
               </div>
             )}
           </div>
-          <button onClick={onClose} className="text-mute hover:text-ink text-[0.8rem]" aria-label="Close panel">Close <kbd className="num border-edge ml-1 rounded border px-1 text-[0.65rem]">Esc</kbd></button>
+          <div className="flex shrink-0 items-center gap-4">
+            <button onClick={onExport} disabled={!onExport} className="border-edge hover:border-mute rounded-md border px-2.5 py-1 text-[0.78rem] disabled:opacity-40">
+              Export brief
+            </button>
+            <button onClick={onClose} className="text-mute hover:text-ink text-[0.8rem]" aria-label="Close panel">Close <kbd className="num border-edge ml-1 rounded border px-1 text-[0.65rem]">Esc</kbd></button>
+          </div>
         </div>
         <nav className="mt-3 flex gap-5" aria-label="Sections">
           {TABS.map((t) => (
