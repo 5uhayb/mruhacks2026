@@ -1,0 +1,36 @@
+iso3,country,site,lat,lon,solar_kwh_m2_day,wind_50m_ms,temp_c
+LBY,Libya,Tripoli,32.89,13.19,5.537,6.16,20.96
+LBY,Libya,Benghazi,32.12,20.09,5.3119,6.48,20.63
+LBY,Libya,Misrata,32.38,15.09,5.1127,6.18,20.94
+LBY,Libya,Sirte,31.21,16.59,5.171,6.04,20.87
+LBY,Libya,Tobruk,32.08,23.96,5.1782,6.36,19.64
+LBY,Libya,Sabha,27.04,14.43,6.1798,5.97,22.69
+LBY,Libya,Kufra,24.18,23.31,6.5369,5.84,22.5
+LBY,Libya,Ghadames,30.13,9.5,5.9928,6.11,22.3
+LBY,Libya,Ghat,24.96,10.18,6.439,5.84,22.33
+LBY,Libya,Jalu,29.03,21.55,5.8186,6.08,22.09
+LBY,Libya,Hun,29.12,15.95,5.9542,5.92,21.44
+LBY,Libya,Ajdabiya,30.76,20.23,5.8327,6.46,20.92
+NGA,Nigeria,Kano,12.0,8.52,5.9986,4.29,26.6
+NGA,Nigeria,Sokoto,13.06,5.24,5.9945,5.14,27.84
+NGA,Nigeria,Lagos,6.52,3.38,4.5914,4.06,26.38
+NGA,Nigeria,Maiduguri,11.83,13.15,5.9604,5.61,28.45
+VEN,Venezuela,Maracaibo,10.64,-71.61,5.5176,4.21,29.07
+VEN,Venezuela,Caracas,10.48,-66.9,5.4787,3.72,24.0
+VEN,Venezuela,Paraguana,11.95,-70.0,5.6482,9.53,27.6
+IRQ,Iraq,Baghdad,33.31,44.36,5.369,5.39,23.88
+IRQ,Iraq,Basra,30.51,47.78,5.645,6.36,26.39
+IRQ,Iraq,Rutba,33.04,40.28,5.5356,5.92,19.14
+AGO,Angola,Luanda,-8.84,13.23,4.8276,4.19,25.56
+AGO,Angola,Namibe,-15.2,12.15,6.1514,4.42,21.36
+AGO,Angola,Huambo,-12.78,15.74,5.6263,4.24,19.26
+DZA,Algeria,Algiers,36.75,3.06,4.8355,5.89,19.08
+DZA,Algeria,Tamanrasset,22.79,5.52,6.4123,5.79,20.05
+DZA,Algeria,Adrar,27.87,-0.29,6.1061,6.61,25.52
+SSD,South Sudan,Juba,4.85,31.58,5.6326,4.33,28.62
+SSD,South Sudan,Malakal,9.53,31.66,5.6047,5.21,28.96
+YEM,Yemen,Sanaa,15.37,44.19,6.4831,3.99,18.57
+YEM,Yemen,Aden,12.79,45.03,6.1466,5.06,28.68
+NOR,Norway,Oslo,59.91,10.75,2.6616,3.7,4.62
+ARE,United Arab Emirates,Abu Dhabi,24.45,54.38,5.8846,4.62,28.17
+BWA,Botswana,Gaborone,-24.65,25.91,5.8757,5.14,21.01
