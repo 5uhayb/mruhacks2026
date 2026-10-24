@@ -46,15 +46,16 @@ export type World = { years: number[]; countries: WorldCountry[]; meta: Meta }
 
 export type Fact = { text: string; kind: string; value: number; year: number; percentile: number; sparkline: Point[] }
 export type Factor = { label: string; value: number | null; effect: number }
+export type Scores = { rows: number; mae: number; baseline_mae: number; error_reduction: number; r2: number }
 export type ModelCard = {
   train_rows: number
   test_rows: number
   train_years: string
   test_years: string
-  r2: number
-  mae: number
-  baseline_no_change_mae: number
-  baseline_average_mae: number
+  all: Scores
+  under_95: Scores
+  declines_share: number
+  target: string
   countries: number
   rows: number
   first_year: number
@@ -83,7 +84,18 @@ export type Country = {
     range_years?: [number, number]
   }
   sun: { site?: string; value?: number; oslo?: number }
-  outlook: { year: number; access_now: number; change: number; access_in_10: number; factors: Factor[] } | null
+  outlook: {
+    year: number
+    access_now: number
+    gap: number
+    baseline_pts: number
+    raw_change: number
+    change: number
+    access_in_10: number
+    clipped: boolean
+    no_gap: boolean
+    factors: Factor[]
+  } | null
   model_card: ModelCard
   meta: Meta
 }

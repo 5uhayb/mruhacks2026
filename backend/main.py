@@ -188,16 +188,8 @@ def country(iso3: str):
 
     outlook = None
     if iso3 in ML["latest"].index:
-        x = ML["latest"].loc[[iso3], impact.FEATURES]
-        pred = float(ML["impact"].predict(x)[0])
-        shap_values = ML["explainer"].shap_values(x)[0]
-        now = float(ML["latest"].loc[iso3, "electricity_access_pct"])
-        outlook = {
-            "year": int(ML["latest"].loc[iso3, "year"]), "access_now": now, "change": pred,
-            "access_in_10": float(np.clip(now + pred, 0, 100)),
-            "factors": sorted(({"label": impact.LABELS[f], "value": None if pd.isna(x[f].iloc[0]) else float(x[f].iloc[0]),
-                                "effect": float(v)} for f, v in zip(impact.FEATURES, shap_values)), key=lambda d: -abs(d["effect"]))[:6],
-        }
+        row = ML["latest"].loc[[iso3]]
+        outlook = {"year": int(row.year.iloc[0]), **impact.explain(ML["impact"], ML["explainer"], row)}
     facts = signature.signature(iso3)
     return Country(
         iso3=iso3, name=lat["country"], resource=model.resource_word(iso3), classification=classify(iso3),

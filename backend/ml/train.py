@@ -17,27 +17,30 @@ def main():
     panel = twins.load_panel()
     print(f"Panel: {panel.iso3.nunique()} countries, {len(panel)} country-years, {panel.year.min()}–{panel.year.max()}")
 
-    print("\nImpact model (LightGBM): 10-year change in electricity access")
+    print(f"\nImpact model (LightGBM): {impact.trainable(impact.build_dataset(panel)).shape[0]} labeled windows")
     df = impact.build_dataset(panel)
     metrics = impact.evaluate(df)
+    print(f"  target: {metrics['target']}")
     print(f"  train: {metrics['train_rows']} rows (start years {metrics['train_years']})")
     print(f"  test:  {metrics['test_rows']} rows (start years {metrics['test_years']})")
-    print(f"  test R²:  {metrics['r2']:.3f}")
-    print(f"  test MAE: {metrics['mae']:.2f} percentage points")
-    print(f"  baseline MAE, predict no change:   {metrics['baseline_no_change_mae']:.2f}")
-    print(f"  baseline MAE, predict the average: {metrics['baseline_average_mae']:.2f}")
+    print(f"  declines treated as no progress: {metrics['declines_share']:.1%} of training windows")
+    for key, name in [("all", "All countries"), ("under_95", "Below 95% access at start")]:
+        s = metrics[key]
+        print(f"  {name} ({s['rows']} rows): MAE {s['mae']:.2f} pts · no-change baseline {s['baseline_mae']:.2f} · "
+              f"{s['error_reduction']:.0%} lower error · R² {s['r2']:.3f}")
     model = impact.train_final(df)
     joblib.dump(model, OUT / "impact.joblib")
 
     # Latest profile of every country, plus its "no plan" projection for the globe's time scrubber
     latest = df.sort_values("year").groupby("iso3").tail(1).reset_index(drop=True)
     latest.to_csv(OUT / "latest_features.csv", index=False)
-    pred = model.predict(latest[impact.FEATURES])
+    pred = impact.predict_pts(model, latest)
     projections = {
         r.iso3: {"from_year": int(r.year), "from": float(r.electricity_access_pct),
-                 "to": float(min(100, max(0, r.electricity_access_pct + p)))}
+                 "to": float(r.electricity_access_pct + p)}
         for r, p in zip(latest.itertuples(), pred)
     }
+    assert all(0 <= v["to"] <= 100 for v in projections.values()), "projection out of bounds"
     (OUT / "projections.json").write_text(json.dumps(projections))
     print(f"  projections saved for {len(projections)} countries")
     metrics.update({"countries": int(panel.iso3.nunique()), "rows": int(len(panel)),
