@@ -13,12 +13,15 @@ DATA = Path(__file__).resolve().parent.parent / "data"
 WINDOW = 5
 HORIZON = 10
 
-FEATURES = ["electricity_access_pct", "oil_rents_pct_gdp", "log_gdp_per_capita", "renewable_electricity_pct", "urban_pct"]
+FEATURES = ["electricity_access_pct", "oil_rents_pct_gdp", "log_gdp_per_capita", "renewable_electricity_pct", "urban_pct",
+            "log_population"]
+MAX_POP_RATIO = 10  # twins must be within one order of magnitude in population
 
 
 def load_panel() -> pd.DataFrame:
     p = pd.read_csv(DATA / "panel.csv").sort_values(["iso3", "year"])
     p["log_gdp_per_capita"] = np.log10(p.gdp_per_capita_usd)
+    p["log_population"] = np.log10(p.population)
     return p
 
 
@@ -42,12 +45,13 @@ class TwinIndex:
     windows: np.ndarray  # (N, WINDOW, features), standardized
     iso3: np.ndarray
     end: np.ndarray
+    log_pop: np.ndarray  # population at the end of each window (log10)
 
     @classmethod
     def build(cls, panel: pd.DataFrame) -> "TwinIndex":
         stats = {f: (float(panel[f].mean()), float(panel[f].std())) for f in FEATURES}
         z = np.column_stack([(panel[f] - stats[f][0]) / stats[f][1] for f in FEATURES])
-        wins, isos, ends = [], [], []
+        wins, isos, ends, pops = [], [], [], []
         for iso3, idx in panel.groupby("iso3").indices.items():
             g = panel.iloc[idx]
             years = g.year.to_numpy()
@@ -62,7 +66,8 @@ class TwinIndex:
                 wins.append(z[idx[k - WINDOW + 1 : k + 1]])
                 isos.append(iso3)
                 ends.append(e)
-        return cls(panel, stats, np.array(wins), np.array(isos), np.array(ends))
+                pops.append(g.log_population.iloc[k])
+        return cls(panel, stats, np.array(wins), np.array(isos), np.array(ends), np.array(pops))
 
     def standardized(self, rows: pd.DataFrame) -> np.ndarray:
         return np.column_stack([(rows[f] - self.stats[f][0]) / self.stats[f][1] for f in FEATURES])
@@ -75,7 +80,8 @@ class TwinIndex:
         recent = g[(g.year > end - WINDOW) & (g.year <= end)]
         if len(recent) < WINDOW:
             return None
-        mask = self.iso3 != iso3
+        # Other countries only, and only those within 10x of this country's population
+        mask = (self.iso3 != iso3) & (np.abs(self.log_pop - recent.log_population.iloc[-1]) <= np.log10(MAX_POP_RATIO))
         d = dtw_batch(self.standardized(recent), self.windows[mask])
         isos, ends = self.iso3[mask], self.end[mask]
 
@@ -91,6 +97,7 @@ class TwinIndex:
             twins.append({
                 "iso3": r.iso3, "country": str(o.country.iloc[0]), "year": int(r.end),
                 "similarity": float(100 * np.exp(-r.d / scale)),
+                "population_then": float(o.loc[r.end, "population"]),
                 "access_then": float(o.loc[r.end, "electricity_access_pct"]),
                 "access": [float(v) for v in path.electricity_access_pct],
                 "gdp_per_capita": [float(v) for v in path.gdp_per_capita_usd],
@@ -105,4 +112,5 @@ class TwinIndex:
                      "access_high": float(acc[:, i].max()), "gdp": float(w @ gdp[:, i]),
                      "gdp_low": float(gdp[:, i].min()), "gdp_high": float(gdp[:, i].max())} for i in range(HORIZON + 1)]
         return {"year": end, "access_now": float(now.electricity_access_pct), "gdp_now": float(now.gdp_per_capita_usd),
+                "population_now": float(now.population),
                 "twins": twins, "forecast": forecast, "windows_searched": int(mask.sum()), "countries_compared": int(len(best))}

@@ -100,11 +100,21 @@ export type Country = {
   meta: Meta
 }
 
-export type Twin = { iso3: string; country: string; year: number; similarity: number; access_then: number; access: number[]; gdp_per_capita: number[] }
+export type Twin = {
+  iso3: string
+  country: string
+  year: number
+  similarity: number
+  population_then: number
+  access_then: number
+  access: number[]
+  gdp_per_capita: number[]
+}
 export type Twins = {
   year: number
   access_now: number
   gdp_now: number
+  population_now: number
   twins: Twin[]
   forecast: { year: number; access: number; access_low: number; access_high: number; gdp: number; gdp_low: number; gdp_high: number }[]
   windows_searched: number

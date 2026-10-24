@@ -214,6 +214,7 @@ class Twins(BaseModel):
     year: int
     access_now: float
     gdp_now: float
+    population_now: float
     twins: list[dict]
     forecast: list[dict]
     windows_searched: int
@@ -228,7 +229,7 @@ def twins(iso3: str):
     if t is None:
         raise HTTPException(404, f"Not enough history to find twins for {iso3}")
     ms = (time.time() - start) * 1000
-    return Twins(**{k: t[k] for k in ["year", "access_now", "gdp_now", "twins", "forecast", "windows_searched"]},
+    return Twins(**{k: t[k] for k in ["year", "access_now", "gdp_now", "population_now", "twins", "forecast", "windows_searched"]},
                  meta=Meta(detail=f"DTW over {t['windows_searched']:,} country-year windows · {len(t['twins'])} matches", server_ms=ms))
 
 

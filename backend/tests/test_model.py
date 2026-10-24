@@ -76,6 +76,14 @@ def test_twin_search_returns_three_other_valid_countries(twin_index):
     assert sims == sorted(sims, reverse=True)
 
 
+def test_twins_are_within_one_order_of_magnitude_in_population(twin_index):
+    for iso3 in ["LBY", "NGA", "IRQ", "CAN", "NOR"]:
+        r = twin_index.find(iso3)
+        for t in r["twins"]:
+            ratio = t["population_then"] / r["population_now"]
+            assert 0.1 <= ratio <= 10, (iso3, t["country"], ratio)
+
+
 # ---------- Plan and futures ----------
 
 def test_revenue_scenarios_shape_and_positive():
