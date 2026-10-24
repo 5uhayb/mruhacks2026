@@ -53,7 +53,7 @@ function Compare({ country, twin }: { country: Country; twin: string }) {
           ))}
         </tbody>
       </table>
-      <p className="text-faint mt-2 text-[0.7rem]">World Bank data (hover a row for the indicator code). Ranked by how differently the two moved, relative to a typical 10-year change worldwide.</p>
+      <p className="text-faint mt-2 text-[0.7rem]">World Bank data. <Info text="Hover a row for the World Bank indicator code. The 3 differences are ranked by how differently the two countries moved, relative to a typical 10-year change worldwide. Values use the closest measured year within 2 years." /></p>
     </div>
   )
 }

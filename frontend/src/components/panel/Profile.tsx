@@ -1,6 +1,6 @@
 import type { Country } from '../../api'
 import { formatMoney, formatNumber, formatPct } from '../../lib/format'
-import { Section, Sparkline, Stat } from '../ui'
+import { Info, Section, Sparkline, Stat } from '../ui'
 
 function percentileText(p: number, kind: string): string | null {
   if (kind === 'decline' || kind === 'diversify') return null
@@ -53,14 +53,14 @@ export default function Profile({ country }: { country: Country }) {
             label="Sunlight"
             value={<>{formatNumber(country.sun.value, 1)}<span className="text-mute ml-1 text-[0.8rem]">kWh/m²/day</span></>}
             sub={country.sun.value && country.sun.oslo
-              ? `${formatNumber(country.sun.value / country.sun.oslo, 1)}× Oslo · ${country.sun.site} · NASA long-term average`
+              ? `${formatNumber(country.sun.value / country.sun.oslo, 1)}× Oslo · ${country.sun.site} · NASA average`
               : undefined}
           />
         </div>
         {r.low && r.high && r.range_years && (
           <p className="text-mute mt-4 text-[0.82rem]">
-            Range, {r.range_years[0]}–{r.range_years[1]}: {formatMoney(r.low.revenue)} ({r.low.year}) to {formatMoney(r.high.revenue)} ({r.high.year}).
-            {r.range_years[1] < (s.electricity_access_pct_year ?? 0) && ` Resource income data ends in ${r.range_years[1]}.`}
+            Income swung from {formatMoney(r.low.revenue)} ({r.low.year}) to {formatMoney(r.high.revenue)} ({r.high.year}).{' '}
+            <Info text={`${country.resource[0].toUpperCase() + country.resource.slice(1)} income = GDP × ${country.resource} rents (% of GDP), World Bank, for ${r.range_years[0]}–${r.range_years[1]}. Rents are profits for the whole economy, not government revenue.${r.range_years[1] < (s.electricity_access_pct_year ?? 0) ? ` Resource income data ends in ${r.range_years[1]}.` : ''}`} />
           </p>
         )}
       </Section>

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { ShockSide, Simulation } from '../../api'
 import { formatCompact, formatDelta, formatMoney, formatPct } from '../../lib/format'
-import { Section, useSize } from '../ui'
+import { Info, Section, useSize } from '../ui'
 import { fitDomain } from './TwinsTab'
 
 const ROWS: { key: keyof ShockSide; label: string; fmt: (v: number) => string; ceiling?: number }[] = [
@@ -72,9 +72,7 @@ export default function StressTab({ sim }: { sim: Simulation }) {
   return (
     <>
       <Section title={`${f.runs} historical bootstrap futures`} right={`From ${f.history_years} ${f.resource} income`}>
-        <p className="text-[0.85rem] leading-snug">
-          {metric} (%) across {f.runs} futures built from {f.history_years} {f.resource} income history
-        </p>
+        <p className="text-[0.85rem] leading-snug">{metric} (%) in each future.</p>
         <div className="text-mute mt-1 mb-2 flex flex-wrap gap-x-4 text-[0.72rem]">
           <span><span className="bg-gold/60 mr-1.5 inline-block h-[2px] w-3 align-middle" />One future each</span>
           <span><span className="bg-ink mr-1.5 inline-block h-[2px] w-3 align-middle" />Median</span>
@@ -83,10 +81,9 @@ export default function StressTab({ sim }: { sim: Simulation }) {
         <Futures key={`${sim.share}-${sim.pool}`} paths={useAccess ? f.access_paths : f.clean_paths} start={useAccess ? sim.start.access : sim.start.clean}
           startYear={startYear} shock={compare ? shockPath : null} />
         <p className="mt-3 text-[0.9rem] leading-snug">
-          Each future replays random 3-year stretches of this country's real {f.resource} income swings.
-          In 9 out of 10, {useAccess ? 'electricity access' : 'clean electricity'} still reaches{' '}
-          <span className="num text-gold">{formatPct(useAccess ? f.access_p10 : f.clean_p10)}</span> by {startYear + 10}.
-          The plan keeps at least 90% of its spending on track in <span className="num">{formatPct(f.p_funded * 100, 0)}</span> of futures.
+          In 9 of 10 futures, {useAccess ? 'electricity access' : 'clean electricity'} still reaches{' '}
+          <span className="num text-gold">{formatPct(useAccess ? f.access_p10 : f.clean_p10)}</span> by {startYear + 10}.{' '}
+          <Info text={`Each future replays random 3-year stretches of ${f.history_years} ${f.resource} income changes (block bootstrap, drifting 30% a year back to normal). The plan keeps at least 90% of planned spending on track in ${formatPct(f.p_funded * 100, 0)} of the ${f.runs} futures; the savings fund tops up projects in bad years.`} />
         </p>
       </Section>
 
@@ -123,7 +120,7 @@ export default function StressTab({ sim }: { sim: Simulation }) {
                   {r.still && (
                     <div className="text-faint text-[0.72rem] leading-snug">
                       {r.ceiling && r.a >= r.ceiling - 0.05 && solarCut
-                        ? 'Target still met: the solar left after the shock is more than needed.'
+                        ? 'Target still met with the solar left.'
                         : r.ceiling && r.a >= r.ceiling - 0.05 ? 'Already at the ceiling.' : 'Not affected by this shock.'}
                     </div>
                   )}
@@ -135,9 +132,9 @@ export default function StressTab({ sim }: { sim: Simulation }) {
             ))}
           </tbody>
         </table>
-        <p className="mt-3 text-[0.9rem] leading-snug">{s.note}</p>
-        <p className="text-mute mt-2 text-[0.8rem] leading-snug">
-          The red dashed line on the futures chart is this shock, ending at <span className="num text-down">{formatPct(shockPath[shockPath.length - 1])}</span>.
+        <p className="mt-3 text-[0.9rem] leading-snug">
+          {s.note.split('. ')[0].replace(/\.$/, '')}.{' '}
+          <Info text={`${s.note} The red dashed line on the futures chart is this shock, ending at ${formatPct(shockPath[shockPath.length - 1])} in ${startYear + 10}.`} />
         </p>
       </Section>
       )}

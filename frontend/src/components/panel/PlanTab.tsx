@@ -35,7 +35,7 @@ function Assumptions({ specs, overrides, setOverrides, countryDefaults }: {
                 return (
                   <div key={key}>
                     <div className="flex items-center justify-between gap-3">
-                      <span className={`text-[0.85rem] ${key in overrides ? 'text-gold' : ''}`}>{s.label}</span>
+                      <span className={`cursor-help text-[0.85rem] underline decoration-dotted decoration-1 underline-offset-4 ${key in overrides ? 'text-gold' : ''}`} title={s.note}>{s.label}</span>
                       <span className="flex items-center gap-1.5">
                         <input type="number" className="num w-24 px-2 py-1 text-right text-[0.8rem]" value={isRate ? +(v * 100).toFixed(2) : v}
                           step={isRate ? 0.1 : s.unit.startsWith('$') && s.max > 100 ? 1000 : 0.05}
@@ -43,7 +43,6 @@ function Assumptions({ specs, overrides, setOverrides, countryDefaults }: {
                         <span className="text-faint w-16 text-[0.7rem]">{isRate ? '%' : s.unit}</span>
                       </span>
                     </div>
-                    <p className="text-faint mt-0.5 text-[0.75rem] leading-snug">{s.note}</p>
                   </div>
                 )
               })}
@@ -52,9 +51,9 @@ function Assumptions({ specs, overrides, setOverrides, countryDefaults }: {
           {edited > 0 && <button onClick={() => setOverrides({})} className="text-gold text-[0.8rem]">Reset to defaults</button>}
         </div>
       ) : (
-        <p className="text-mute text-[0.82rem]">Costs, returns per sector, solar sourcing, fuel reform, household size and build times. Every number above depends on them.</p>
+        <p className="text-mute text-[0.82rem]">Every number above depends on these editable assumptions.</p>
       )}
-      <p className="text-faint mt-3 text-[0.75rem] leading-snug">Limitation: {GRID_NOTE} Storage is not costed either.</p>
+      <div className="mt-2"><Info label="Limitations" text={`${GRID_NOTE} Storage is not costed. Hover an assumption's name to see what it means.`} /></div>
     </Section>
   )
 }
@@ -65,7 +64,7 @@ function Card({ label, value, sub, note }: { label: string; value: ReactNode; su
       <div className="label">{label} <span className="text-faint normal-case tracking-normal">· estimate</span></div>
       <div className="num text-gold mt-1 text-[1.3rem] leading-none">{value}</div>
       {sub && <div className="text-mute mt-1.5 text-[0.78rem] leading-snug">{sub}</div>}
-      {note && <div className="text-faint mt-1 text-[0.72rem] leading-snug">{note}</div>}
+      {note && <div className="mt-1"><Info text={note} /></div>}
     </div>
   )
 }
@@ -84,7 +83,7 @@ function SectorCard({ sector, sim, headline, sub }: { sector: Sector; sim: Simul
         <div><dt className="text-faint text-[0.66rem]">Return</dt><dd>{formatMoney(e.annual_return)}/yr</dd></div>
         <div><dt className="text-faint text-[0.66rem]">Payback</dt><dd>{e.payback != null ? `${formatNumber(e.payback, 1)} yrs` : 'None needed'}</dd></div>
       </dl>
-      <p className="text-faint mt-1.5 text-[0.7rem] leading-snug">{e.basis}{sector === 'rail' ? ' · payback per km once open' : fund ? ' · capital stays liquid' : ''}.</p>
+      <div className="mt-1.5"><Info text={`${e.basis}${sector === 'rail' ? '; payback is per km of corridor once open' : fund ? '; the capital stays liquid' : ''}. Returns and paybacks use the editable assumptions (estimates).`} /></div>
     </div>
   )
 }
@@ -137,12 +136,11 @@ function ReformAndSupply({ sim, startYear, supply, setSupply, reform, setReform,
               ))}
             </div>
             <p className="text-mute mt-2 text-[0.78rem] leading-snug">
-              Build cost ×{formatNumber(sim.supply.capex_mult, 2)} · farms running {sim.supply.build_years} {sim.supply.build_years === 1 ? 'year' : 'years'} after funding
               {supply === 'local'
-                ? ` · about ${formatInt(sim.supply.jobs)} local assembly jobs and ${formatMoney(sim.supply.local_value)} kept in the country by ${startYear + 10}`
-                : ' · faster to deploy, no local manufacturing'} (estimates).
+                ? `Cost ×${formatNumber(sim.supply.capex_mult, 2)}, ${sim.supply.build_years}-year lead time, ~${formatInt(sim.supply.jobs)} local jobs, ${formatMoney(sim.supply.local_value)} kept at home (estimates).`
+                : `Cost ×${formatNumber(sim.supply.capex_mult, 2)} with tariffs, farms running after ${sim.supply.build_years} ${sim.supply.build_years === 1 ? 'year' : 'years'} (estimates).`}{' '}
+              <Info text={`${sim.supply.note} Import: lower cost per watt plus import tariff and logistics, faster deployment. Local assembly joint venture: higher cost and longer lead time at first, but creates manufacturing jobs and keeps part of the spending in the country. All figures are editable estimates under Assumptions → Solar sourcing.`} />
             </p>
-            <p className="text-faint mt-1 text-[0.72rem]">{sim.supply.note}</p>
           </div>
 
           <div>
@@ -167,11 +165,10 @@ function ReformAndSupply({ sim, startYear, supply, setSupply, reform, setReform,
                   Add the savings kept by the state to the investment plan
                 </label>
                 <p className="text-faint text-[0.72rem] leading-snug">
-                  The current price is a generic placeholder: set it to the country's actual pump price.
-                  {r && (r.litres_source
-                    ? ` Fuel use: ${formatInt(r.litres_per_person)} L per person a year, from World Bank energy use (${formatInt(r.litres_source.energy_kgoe)} kg of oil equivalent per person, ${r.litres_source.year}) × road fuel share (estimate).`
-                    : ` Fuel use: ${formatInt(r.litres_per_person)} L per person a year (edited).`)}
-                  {' '}Pass-through and freight relief are editable under Assumptions.
+                  Current price is a placeholder estimate; set the real pump price.{' '}
+                  <Info text={`${r ? (r.litres_source
+                    ? `Fuel use: ${formatInt(r.litres_per_person)} L per person a year, from World Bank energy use (${formatInt(r.litres_source.energy_kgoe)} kg of oil equivalent per person, ${r.litres_source.year}) × road fuel share (estimate) × 1.2 L per kg.`
+                    : `Fuel use: ${formatInt(r.litres_per_person)} L per person a year (edited).`) : ''} Subsidy freed = price rise × fuel use × population, before any change in how much fuel people buy. Pass-through and freight relief are editable under Assumptions.`} />
                 </p>
               </div>
             )}
@@ -179,15 +176,15 @@ function ReformAndSupply({ sim, startYear, supply, setSupply, reform, setReform,
               <>
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   <Card label="Subsidy freed" value={`${formatMoney(r.freed[full])}/yr`}
-                    sub={`At full price (year ${r.phase_years}). ${formatMoney(r.kept[full])}/yr kept after rebates${r.add_to_plan ? ', added to the plan' : ''}.`} />
+                    sub={`${formatMoney(r.kept[full])}/yr kept after rebates${r.add_to_plan ? ', added to the plan' : ''}.`} />
                   <div className="border-edge rounded-md border p-3">
                     <div className="label">Consumer inflation <span className="text-faint normal-case tracking-normal">· estimate</span></div>
                     <div className={`num mt-1 text-[1.3rem] leading-none ${r.warning ? 'text-down' : 'text-gold'}`}>+{formatNumber(r.peak_cpi * 100, 1)}% CPI</div>
-                    <div className="text-mute mt-1.5 text-[0.78rem] leading-snug">Per year during the {r.phase_years}-year phase-in, from higher transport and manufacturing costs.</div>
+                    <div className="text-mute mt-1.5 text-[0.78rem] leading-snug">Per year during the {r.phase_years}-year phase-in.</div>
                     {r.warning && <span className="bg-down/15 text-down mt-1.5 inline-block rounded px-1.5 py-0.5 text-[0.7rem]">Above the {formatNumber(threshold, 0)}%/yr warning level</span>}
                   </div>
                   <Card label="Net cost per household" value={`${formatMoney(r.net_per_home_month[full])}/mo`}
-                    sub={`${formatMoney(r.cost_per_home_month[full])}/mo higher costs − ${formatMoney(r.rebate_per_home_month[full])}/mo rebate (${formatPct(r.rebate_share * 100, 0)} of savings).`} />
+                    sub={`${formatMoney(r.cost_per_home_month[full])} costs − ${formatMoney(r.rebate_per_home_month[full])} rebate, per month.`} />
                 </div>
                 <div className="mt-3 h-[120px]">
                   <div className="text-mute mb-1 text-[0.72rem]">Inflation added by the reform, % per year</div>
@@ -206,11 +203,10 @@ function ReformAndSupply({ sim, startYear, supply, setSupply, reform, setReform,
                   </ResponsiveContainer>
                 </div>
                 <p className="text-mute mt-1 text-[0.78rem] leading-snug">
-                  Rebates lower what families pay, not the inflation rate.{' '}
                   {relief >= 0
-                    ? `The rail corridor is complete in ${startYear + relief + 1}; from then on, cheaper freight removes part of the passed-on transport cost (blue).`
-                    : 'The rail corridor is not complete within 10 years at this split, so there is no freight relief yet.'}
-                  {' '}Household spending: {formatMoney(r.spending.value)} ({r.spending.year}, {r.spending.source}). Before any change in how much fuel people buy.
+                    ? `Rebates cut family costs, not inflation; freight relief (blue) starts when the corridor opens in ${startYear + relief + 1}.`
+                    : 'Rebates cut family costs, not inflation; no freight relief until the transport corridor is complete.'}{' '}
+                  <Info text={`Inflation added each year = the rise in what households pay for fuel, directly and through passed-on business costs, ÷ household spending (${formatMoney(r.spending.value)}, ${r.spending.year}, ${r.spending.source}). Rebates are cash back to families, so they lower net cost but not prices. Once the rail corridor is complete, cheaper freight removes part of the passed-on transport cost. Figures are at the full price (year ${r.phase_years}), before any change in how much fuel people buy.`} />
                 </p>
               </>
             )}
@@ -294,7 +290,7 @@ export default function PlanTab({ country, sim, share, setShare, split, setSplit
             <SectorCard sector="rail" sim={sim} headline={<CountUp value={rail.funded_km} format={(v) => formatCompact(v, 'km')} />}
               sub={rail.from
                 ? `${rail.from} → ${rail.to}: ${formatInt(rail.funded_km)} of ${formatInt(rail.route_km)} km${rail.complete_year ? `, complete in ${startYear + rail.complete_year}` : ''}`
-                : 'Of new intercity rail (no corridor defined for this country)'} />
+                : 'New freight lines (no corridor defined for this country)'} />
             <SectorCard sector="industry" sim={sim} headline={<CountUp value={sim.sectors.industry.capex} format={(v) => formatMoney(v)} />}
               sub="Capital in tourism and non-oil industry (hotels, logistics, processing)" />
             <SectorCard sector="fund" sim={sim} headline={<CountUp value={y.fund} format={(v) => formatMoney(v)} />}

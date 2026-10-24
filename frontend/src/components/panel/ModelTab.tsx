@@ -1,6 +1,6 @@
 import type { Country, Scores, Twins } from '../../api'
 import { formatDelta, formatInt, formatNumber, formatPct } from '../../lib/format'
-import { Section } from '../ui'
+import { Info, Section } from '../ui'
 
 const pts = (v: number) => `${v >= 0 ? '+' : '−'}${formatNumber(Math.abs(v), 1)} pts`
 
@@ -48,7 +48,7 @@ function Metrics({ title, s, sentence }: { title: string; s: Scores; sentence: s
         <div><div className="label">Error cut</div>{formatDelta(-s.error_reduction * 100)}</div>
         <div><div className="label">R²</div>{formatNumber(s.r2, 2)}</div>
       </div>
-      <p className="text-mute mt-2 text-[0.78rem] leading-snug">{sentence}</p>
+      <p className="text-mute mt-2 text-[0.78rem] leading-snug">{sentence.split('. ')[0].replace(/\.$/, '')}. <Info text={sentence} /></p>
     </div>
   )
 }
@@ -96,8 +96,7 @@ export default function ModelTab({ country, twins }: { country: Country; twins: 
           <div><dt className="label">Split by time</dt><dd className="num mt-0.5">train {m.train_years} ({formatInt(m.train_rows)}) · test {m.test_years}</dd></div>
         </dl>
         <p className="text-mute mt-3 text-[0.78rem] leading-snug">
-          No test year overlaps a training outcome. Forecasts are bounded to 0–100% by design. Access fell in {formatPct(m.declines_share * 100)} of
-          training windows; the model treats those as no progress, so it cannot predict a decline.
+          Tested only on years it never trained on. <Info text={`No test year overlaps a training outcome. Forecasts are bounded to 0–100% by design. Access fell in ${formatPct(m.declines_share * 100)} of training windows; the model treats those as no progress, so it cannot predict a decline.`} />
         </p>
       </Section>
 
