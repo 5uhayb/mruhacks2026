@@ -8,15 +8,15 @@ Turning the lights back on. Nahda helps countries below 90% electricity access p
 
 ## The workspace
 
-The globe colors every country by electricity access (red below 60% critical, amber 60–90% struggling, slate 90%+ connected, grey no data), with the data year in the legend. Quick-pick chips feature Libya, Nigeria and Kenya (then Botswana and Côte d'Ivoire). Each country has one snapshot year (the latest with total, urban and rural access and clean share all measured); every baseline uses it, and newer figures appear only as small notes. Flags are bundled SVGs (flag-icons), so they work offline on Windows.
+The globe colors every country by electricity access (red below 60% critical, amber 60–90% struggling, slate 90%+ connected, grey no data), with the data year in the legend. The app opens on Libya, the demo country (any other country via search or `?c=ISO3` in the URL). Each country has one snapshot year (the latest with total, urban and rural access and clean share all measured); every baseline uses it, and newer figures appear only as small notes. Flags are bundled SVGs (flag-icons), so they work offline on Windows.
 
 | Tab | What it shows |
 |---|---|
 | Profile | Electricity access (total, urban, rural), clean share, best solar (NASA POWER `ALLSKY_SFC_SW_DWN`) and best 50 m wind (`WS50M`) with site names, "High solar potential" / "Promising wind" badges, and the yearly budget (1% of GDP + 10% of resource income, both editable) |
 | Peers | Ranked by similarity and 10-year gain; click one for its 10-year chart, 3 data bullets, an honest clean-power trade-off and a lesson. Countries that started within ±15 points of this country's access (below 95%) and then gained ≥10 points or reached 95% in 10 years, matched by DTW on electricity features. Each in 3 lines; "Use [Peer]'s playbook →" sets the mix |
-| Plan | Risk-adjusted portfolio: solar, wind, grid & storage, and a reserve fund; a 3-sentence recommendation from the country's data; guardrails (solar or wind ≤ 40%, lines ≥ 25% and storage ≥ 10% when solar + wind exceed 30%, reserve 10–15%) with warnings; phased 10-year spending |
+| Plan | Five buckets: solar, wind, grid lines, battery storage, reserve. Grid lines = 10% + 10% × rural gap + 20% × national gap (max 30%); reserve 10%; storage 10% if more than 40% is left for generation, else 5%; solar and wind split the rest by risk-adjusted energy per dollar, each capped at 50%. Three bullets explain it from the data, plus an AI recommendation card (From the data / Analysis / From the web, cached) and phased 10-year spending |
 | Stress | 500 budget futures from the country's own GDP and resource-income history, plus "Budget cut 30%", "Costs run over budget +25%", "Construction delay 2 years" |
-| Model | The supervised impact model (LightGBM + SHAP) for "if nothing changes", with honest out-of-sample accuracy |
+| Model | "Without a new plan" forecast from a LightGBM model on electricity-only factors (current access, rural access, 5-year trend, investment, clean share), its top 3 drivers in plain sentences, and plain accuracy: on unseen years it missed by 3.3% of the population on average (2× better than assuming no change; R² 0.57; 7.7% and R² 0.13 for countries below 95% access) |
 
 **Ask Nahda** (bottom right) answers through the backend (`POST /api/advisor`) with Gemini and Google Search grounding, falling back to Gemini without search, then Claude if `ANTHROPIC_API_KEY` is set, then an instant offline answer from app data. Keys stay in `backend/.env`; set `GEMINI_MODEL` there to change the model.
 
