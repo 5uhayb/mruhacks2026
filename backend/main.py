@@ -236,7 +236,7 @@ def peer_details(p: dict) -> dict:
     changed = changed[0].upper() + changed[1:]
     a0, a1 = p["access"][0], p["access"][-1]
     c = ch["renewable_electricity_pct"]
-    result = (f"Access {a0:.0f}% → {a1:.0f}% ({a1 - a0:+.0f} pts)"
+    result = (f"{a1 - a0:+.0f}% more people connected ({a0:.0f}% → {a1:.0f}%)"
               + (f" · clean share {c['from']:.0f}% → {c['to']:.0f}%" if c["from"] is not None else ""))
     return {**p, "urban_gain": urban, "rural_gain": rural, "clean_gain": clean, "changed": changed, "result": result,
             "access_change": a1 - a0}

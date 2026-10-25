@@ -25,14 +25,14 @@ FEATURES = [
     "renewable_electricity_pct", "urban_pct", "log_population", "investment_pct_gdp",
 ]
 LABELS = {
-    "electricity_access_pct": "Electricity access today",
-    "access_change_5y": "5-year access trend",
+    "electricity_access_pct": "How many already have power",
+    "access_change_5y": "5-year connection trend",
     "oil_rents_pct_gdp": "Oil share of the economy",
     "log_gdp_per_capita": "Income per person",
     "renewable_electricity_pct": "Clean electricity share",
-    "urban_pct": "Share living in cities",
+    "urban_pct": "Share of people in cities",
     "log_population": "Population size",
-    "investment_pct_gdp": "Investment (% of GDP)",
+    "investment_pct_gdp": "How much the country invests",
 }
 
 
