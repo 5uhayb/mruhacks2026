@@ -246,7 +246,7 @@ function App() {
           </Boundary>
         </CountryPanel>
       )}
-      <Advisor iso3={selected} name={country?.name ?? null} split={split} overrides={overrides} sim={sim} peers={peers} />
+      <Advisor iso3={selected} name={country?.name ?? null} split={split} overrides={overrides} sim={sim} peers={peers} onSelect={select} />
       {briefOpen && country && sim && (
         <Brief markdown={buildBrief({ country, sim, peers, specs, overrides })} onClose={() => setBriefOpen(false)} />
       )}

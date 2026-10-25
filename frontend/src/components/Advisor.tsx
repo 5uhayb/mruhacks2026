@@ -90,20 +90,22 @@ function Typing() {
   )
 }
 
-export default function Advisor({ iso3, name, split, overrides, sim, peers }: {
+export default function Advisor({ iso3, name, split, overrides, sim, peers, onSelect }: {
   iso3: string | null
   name: string | null
   split: Split | null
   overrides: Record<string, number>
   sim: Simulation | null
   peers: Peers | null
+  /** Select a country on the globe (fly to it, open its panel), when a message names one */
+  onSelect: (iso3: string) => void
 }) {
   const [open, setOpen] = useState(false)
+  // The conversation carries on when the country changes (including when the chat itself selects one)
   const [entries, setEntries] = useState<Entry[]>([])
   const [text, setText] = useState('')
   const end = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null)
-  useEffect(() => setEntries([]), [iso3])
   useEffect(() => {
     end.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
   }, [entries])
@@ -114,14 +116,17 @@ export default function Advisor({ iso3, name, split, overrides, sim, peers }: {
   const busy = entries.some((e) => !e.answer)
   async function ask(question: string, kind: AdvisorKind | null) {
     if (busy) return
+    // The last reply goes along so the server never sends the same one twice in a row
+    const previous = [...entries].reverse().find((e) => e.answer)?.answer?.answer ?? null
     setEntries((e) => [...e, { question, answer: null }])
     let answer: AdvisorAnswer
     try {
-      answer = await askAdvisor({ iso3, question, kind, split, assumptions: overrides })
+      answer = await askAdvisor({ iso3, question, kind, split, assumptions: overrides, previous })
     } catch {
       answer = localAnswer(kind, name ?? 'this country', sim, peers)
     }
     setEntries((e) => e.map((x, i) => (i === e.length - 1 ? { ...x, answer } : x)))
+    if (answer.select && answer.select.iso3 !== iso3) onSelect(answer.select.iso3)
   }
 
   const twin = peers?.peers[0]?.country
@@ -134,8 +139,13 @@ export default function Advisor({ iso3, name, split, overrides, sim, peers }: {
         [`How many people would get power by ${endYear}?`, `By ${endYear}?`, 'people'],
         ['How reliable is this plan?', 'Risks?', 'risk'],
       ]
-    : []
+    : [
+        ['Which countries have the least electricity?', 'Least power?', 'least'],
+        ['Show me a comeback story', 'Comeback?', 'comeback'],
+        ['How does Nahda pick a twin?', 'How twins?', 'method'],
+      ]
   const started = entries.length > 0
+  const last = entries.length - 1
 
   return (
     <>
@@ -158,7 +168,7 @@ export default function Advisor({ iso3, name, split, overrides, sim, peers }: {
           <div className="scroll-thin flex-1 space-y-3 overflow-y-auto px-4 pb-2" aria-live="polite">
             {!started && (
               <div className="fade space-y-2 pt-1">
-                <p className="text-mute text-[0.8rem]">{name ? `Ask anything about ${name}, or start with one of these:` : 'Say hello, or pick a country on the globe to ask about its plan.'}</p>
+                <p className="text-mute text-[0.8rem]">{name ? `Ask anything about ${name}, or start with one of these:` : 'Ask about any country, or start with one of these:'}</p>
                 {chips.map(([q, , k]) => (
                   <button key={k} onClick={() => ask(q, k)}
                     className="border-edge hover:border-cyan/60 hover:text-ink text-mute block w-full rounded-xl border px-3 py-2 text-left text-[0.8rem] transition-colors">
@@ -175,6 +185,17 @@ export default function Advisor({ iso3, name, split, overrides, sim, peers }: {
                     : e.answer.card ? <Card card={e.answer.card} about={e.answer.about} sources={e.answer.sources} />
                     : <div className="bg-panel border-edge w-fit max-w-[92%] rounded-xl border px-3.5 py-2.5 text-[0.84rem] leading-snug">{e.answer.answer}</div>}
                 </div>
+                {/* Suggested follow-ups, on the latest reply only */}
+                {i === last && !!e.answer?.suggestions?.length && (
+                  <div className="fade flex flex-wrap gap-1.5">
+                    {e.answer.suggestions.map((s) => (
+                      <button key={s} onClick={() => ask(s, null)} disabled={busy}
+                        className="border-edge hover:border-cyan/60 hover:text-ink text-mute rounded-full border px-3 py-1 text-left text-[0.76rem] transition-colors disabled:opacity-40">
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
             <div ref={end} />
@@ -194,7 +215,7 @@ export default function Advisor({ iso3, name, split, overrides, sim, peers }: {
           <form className="shrink-0 px-4 pb-4" onSubmit={(ev) => { ev.preventDefault(); if (text.trim()) { ask(text.trim(), null); setText('') } }}>
             <div className="border-edge focus-within:border-mute bg-panel flex items-center rounded-full border pr-1.5 pl-4 transition-colors">
               <input ref={input} type="text" value={text} onChange={(ev) => setText(ev.target.value)} disabled={busy}
-                placeholder={name ? `Ask about ${name}…` : 'Say hello…'} aria-label="Question"
+                placeholder={name ? `Ask about ${name}…` : 'Ask about any country…'} aria-label="Question"
                 className="min-w-0 flex-1 !border-0 !bg-transparent py-2 text-[0.84rem] outline-none" />
               <button type="submit" disabled={busy || !text.trim()} aria-label="Send"
                 className="bg-gold text-space grid h-7 w-7 shrink-0 place-items-center rounded-full transition-opacity disabled:opacity-30">

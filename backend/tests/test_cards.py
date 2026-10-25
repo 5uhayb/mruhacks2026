@@ -39,7 +39,7 @@ def test_every_chip_gives_a_well_formed_card(app, iso3):
         assert c and c["verdict"] and c["source"].startswith("Source:"), (iso3, kind)
         assert 2 <= len(c["facts"]) <= 3 and all(f["icon"] in cards.ICONS and f["value"] for f in c["facts"]), (iso3, kind, c)
         assert not cards.repeats(c), (iso3, kind, c)
-        assert r.about is None, (iso3, kind)  # a chip naming the country's own peer must not switch country
+        assert r.select is None, (iso3, kind)  # a chip naming the country's own peer must not switch country
 
 
 def test_top_share_is_a_percentage_and_ranks_correctly():
@@ -49,17 +49,56 @@ def test_top_share_is_a_percentage_and_ranks_correctly():
     assert cards.top_share("solar", 6.0) < cards.top_share("solar", 4.5)
 
 
-def test_named_country_detection():
-    assert cards.named_country("What about Mali?", "MRT") == "MLI"
-    assert cards.named_country("How is the DRC doing?", "MRT") == "COD"
-    assert cards.named_country("What should Mauritania do first?", "MRT") is None  # the open country is not a switch
-    assert cards.named_country("How reliable is this plan?", "MRT") is None
+@pytest.mark.parametrize("text, iso3", [
+    ("Sudan", "SDN"), ("sudan", "SDN"), ("south sudan please", "SSD"), ("What about Mali?", "MLI"), ("How is the DRC doing?", "COD"),
+    ("congo", "COD"), ("republic of congo", "COG"), ("Ivory Coast", "CIV"), ("tell me about nigerai", "NGA"), ("sierra leone", "SLE"),
+])
+def test_country_names_are_found_with_aliases_and_small_typos(text, iso3):
+    assert cards.find_country(text) == iso3
 
 
-def test_another_country_named_in_free_text_is_answered_about_that_country(app):
-    r = app.ask_advisor(app.AdvisorRequest(iso3="MRT", question="What about Mali?"))
-    assert r.about == {"iso3": "MLI", "name": "Mali"}
-    assert "Mali" in r.answer or r.card["facts"]
+@pytest.mark.parametrize("text", ["How reliable is this plan?", "I need a chain of answers", "how is the power grid", "asdfgh"])
+def test_ordinary_words_are_not_mistaken_for_countries(text):
+    assert cards.find_country(text) is None
+
+
+def test_the_open_country_is_not_a_switch():
+    assert cards.named_country("What should Mauritania do first?", "MRT") is None
+
+
+@pytest.mark.parametrize("selected", [None, "MRT"])
+def test_a_named_country_is_selected_and_answered_about(app, selected):
+    """'Sudan' with or without a country open: select Sudan on the globe and answer with its overview card."""
+    r = app.ask_advisor(app.AdvisorRequest(iso3=selected, question="Sudan"))
+    assert r.select == {"iso3": "SDN", "name": "Sudan"}
+    assert r.card and not cards.repeats(r.card)
+
+
+def test_starters_without_a_country_each_get_a_card_from_data(app):
+    for kind in ("least", "comeback", "method"):
+        r = app.ask_advisor(app.AdvisorRequest(question=app.STARTERS[("least", "comeback", "method").index(kind)]))
+        assert r.card and 2 <= len(r.card["facts"]) <= 3 and not cards.repeats(r.card), kind
+        assert r.suggestions, kind
+    least = app.ask_advisor(app.AdvisorRequest(question="Which countries have the least electricity?"))
+    lowest = app.world_rows()[0]
+    assert least.card["verdict"].startswith(lowest["name"]) and lowest["access"] <= app.world_rows()[1]["access"]
+
+
+def test_greetings_and_unclear_messages_get_a_short_reply_with_chips(app):
+    hi = app.ask_advisor(app.AdvisorRequest(question="hi"))
+    assert hi.card is None and hi.suggestions == app.STARTERS and len(hi.answer) < 120
+    unclear = app.ask_advisor(app.AdvisorRequest(question="asdfgh"))
+    assert unclear.card is None and unclear.suggestions == app.STARTERS
+    hi_country = app.ask_advisor(app.AdvisorRequest(iso3="MRT", question="hello"))
+    assert "Mauritania" in hi_country.answer and len(hi_country.suggestions) == 4
+
+
+@pytest.mark.parametrize("question, iso3, kind", [("hi", None, None), ("asdfgh", None, None), ("blorp", "MRT", None),
+                                                   ("How reliable is this plan?", "MRT", "risk")])
+def test_never_the_same_reply_twice_in_a_row(app, question, iso3, kind):
+    first = app.ask_advisor(app.AdvisorRequest(iso3=iso3, question=question, kind=kind))
+    again = app.ask_advisor(app.AdvisorRequest(iso3=iso3, question=question, kind=kind, previous=first.answer))
+    assert again.answer != first.answer and again.suggestions
 
 
 def test_tidy_removes_repeated_numbers_least_important_first():

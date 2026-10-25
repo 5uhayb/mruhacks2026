@@ -167,7 +167,7 @@ export type Simulation = {
 export type AssumptionSpec = { group: string; value: number; min: number; max: number; unit: string; label: string; note: string }
 export type SimulateInput = { iso3: string; split: Split | null; assumptions: Record<string, number> }
 
-export type AdvisorKind = 'mix' | 'peer' | 'siting' | 'first' | 'risk' | 'people' | 'peer_web'
+export type AdvisorKind = 'mix' | 'peer' | 'siting' | 'first' | 'risk' | 'people' | 'peer_web' | 'least' | 'comeback' | 'method'
 export type CardIcon = 'sun' | 'wind' | 'bolt' | 'home' | 'shield' | 'people' | 'pin'
 /** An answer card: one-line verdict, 2-3 label/value facts (exact values in detail), one "why" sentence, a source line */
 export type AnswerCard = {
@@ -185,6 +185,10 @@ export type AdvisorAnswer = {
   card?: AnswerCard | null
   /** set when the question named another country and the answer is about that one */
   about?: { iso3: string; name: string } | null
+  /** the message named a country: select it on the globe; the answer is about it */
+  select?: { iso3: string; name: string } | null
+  /** questions to offer as chips under this reply */
+  suggestions?: string[]
   meta: Meta
 }
 export type AdvisorStatus = { key: boolean; last_mode: AdvisorAnswer['mode'] | null }
@@ -195,5 +199,5 @@ export const getPeers = async (iso3: string) => (await api.get<Peers>(`/peers/${
 export const simulate = async (input: SimulateInput) => (await api.post<Simulation>('/simulate', input)).data
 export const getAssumptions = async () => (await api.get<Record<string, AssumptionSpec>>('/assumptions')).data
 export const getAdvisorStatus = async () => (await api.get<AdvisorStatus>('/advisor/status')).data
-export const askAdvisor = async (input: Omit<SimulateInput, 'iso3'> & { iso3: string | null; question: string; kind: AdvisorKind | null }) =>
+export const askAdvisor = async (input: Omit<SimulateInput, 'iso3'> & { iso3: string | null; question: string; kind: AdvisorKind | null; previous?: string | null }) =>
   (await api.post<AdvisorAnswer>('/advisor', input, { timeout: 45000 })).data

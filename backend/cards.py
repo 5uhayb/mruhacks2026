@@ -144,7 +144,9 @@ Never use the same number twice across verdict, fact values and why."""
 
 # ---------- Which country, which question ----------
 
-ALIASES = {"drc": "COD", "dr congo": "COD", "congo dr": "COD", "ivory coast": "CIV", "cote d'ivoire": "CIV", "burma": "MMR",
+ALIASES = {"drc": "COD", "dr congo": "COD", "congo dr": "COD", "congo": "COD", "democratic republic of the congo": "COD",
+           "congo kinshasa": "COD", "republic of congo": "COG", "republic of the congo": "COG", "congo brazzaville": "COG",
+           "ivory coast": "CIV", "cote d'ivoire": "CIV", "burma": "MMR", "swaziland": "SWZ", "eswatini": "SWZ", "cape verde": "CPV",
            "laos": "LAO", "south korea": "KOR", "north korea": "PRK", "russia": "RUS", "syria": "SYR", "iran": "IRN",
            "egypt": "EGY", "yemen": "YEM", "venezuela": "VEN", "gambia": "GMB", "the gambia": "GMB", "uk": "GBR", "usa": "USA",
            "united states": "USA", "turkey": "TUR", "vietnam": "VNM", "kyrgyzstan": "KGZ", "slovakia": "SVK", "czechia": "CZE"}
@@ -159,24 +161,63 @@ def country_names() -> list[tuple[str, str]]:
     for iso3, name in dict(zip(panel.iso3, panel.country)).items():
         if iso3 not in usable:
             continue
-        out[name.lower()] = iso3
-        out[name.split(",")[0].strip().lower()] = iso3  # "Congo, Dem. Rep." -> "congo"
-    out.update(ALIASES)
+        out[normalise(name)] = iso3
+        out[normalise(name.split(",")[0])] = iso3  # "Congo, Dem. Rep." -> "congo"
+    out.update({k: v for k, v in ALIASES.items() if v in usable})
     return sorted(out.items(), key=lambda kv: -len(kv[0]))
 
 
-def named_country(question: str, selected: str | None) -> str | None:
-    """A different country named in the question, if any (whole words, longest name first)."""
-    q = " " + re.sub(r"[^a-z' ]", " ", question.lower()) + " "
-    for name, iso3 in country_names():
+def normalise(text: str) -> str:
+    """Lowercase letters only, accents removed: 'Côte d'Ivoire!' -> 'cote d'ivoire'."""
+    import unicodedata
+
+    t = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z' ]", " ", t)).strip()
+
+
+# Words that sit close to a country name but are not one ("chain" ~ "china", "spin" ~ "spain")
+NOT_COUNTRIES = {"chain", "spin", "plan", "pain", "omen", "mail", "iran's", "india's", "power", "grids", "solar"}
+
+
+def find_country(question: str) -> str | None:
+    """Any country named in the question: exact names and aliases first (longest first, so 'south sudan' beats
+    'sudan'), then small typos ('nigerai' -> Nigeria) on words of 5+ letters."""
+    import difflib
+
+    q = f" {normalise(question)} "
+    names = country_names()
+    for name, iso3 in names:
         if f" {name} " in q:
-            return iso3 if iso3 != selected else None
+            return iso3
+    lookup = dict(names)
+    words = q.split()
+    for n in (3, 2, 1):  # multi-word names first ("cote d'ivoire", "sierra leone")
+        for i in range(len(words) - n + 1):
+            phrase = " ".join(words[i:i + n])
+            if len(phrase) < 5 or phrase in NOT_COUNTRIES:
+                continue
+            hit = difflib.get_close_matches(phrase, lookup, n=1, cutoff=0.84)
+            if hit:
+                return lookup[hit[0]]
     return None
 
 
-def kind_of(question: str) -> str:
+def named_country(question: str, selected: str | None) -> str | None:
+    """A country named in the question other than the selected one, if any."""
+    iso3 = find_country(question)
+    return iso3 if iso3 != selected else None
+
+
+def kind_of(question: str) -> str | None:
+    """Which question this is, from its words; None if nothing matches."""
     q = question.lower()
-    if any(w in q for w in ("peer", "differently", "succeed", "copy", "learn from")) or re.search(r"\bwhy\b.*\bdid\b", q):
+    if any(w in q for w in ("least electricity", "least power", "lowest", "worst", "most people without", "least access", "fewest")):
+        return "least"
+    if any(w in q for w in ("comeback", "success story", "turnaround", "came back")):
+        return "comeback"
+    if re.search(r"\b(twin|peer)s?\b", q) and any(w in q for w in ("pick", "choose", "chosen", "find", "select", "how does", "how do you", "work")):
+        return "method"
+    if any(w in q for w in ("peer", "twin", "differently", "succeed", "copy", "learn from")) or re.search(r"\bwhy\b.*\bdid\b", q):
         return "peer"
     if any(w in q for w in ("how many", "people", "by 20", "get power", "connected")):
         return "people"
@@ -188,7 +229,52 @@ def kind_of(question: str) -> str:
         return "siting"
     if any(w in q for w in ("solar", "wind", "sun", "mix")):
         return "mix"
-    return "first"  # anything else ("What about Mali?") gets the overview
+    if any(w in q for w in ("tell me", "about", "overview", "plan", "summary", "explain", "what", "how", "why", "?")):
+        return "first"  # a general question about a country gets the overview
+    return None
+
+
+# ---------- World cards (no country needed) ----------
+
+def least(rows: list[dict]) -> dict:
+    """rows: every country's latest access, lowest first ({iso3, name, access, year, region})."""
+    top = rows[:3]
+    regions = [r["region"] for r in rows[:10] if r.get("region")]
+    common = max(set(regions), key=regions.count) if regions else None
+    share = regions.count(common) if common else 0
+    return tidy({
+        "verdict": f"{top[0]['name']} has the least electricity",
+        "facts": [{"icon": "home", "label": r["name"], "value": f"{r['access']:.0f}% have power", "detail": str(r["year"])} for r in top],
+        "why": ("All ten lowest are in " if share == 10 else f"{SHARE_WORDS[share].split(' in ')[0]} of the ten lowest are in ") + f"{common}."
+               if common and share >= 6 else "",
+        "source": "Source: World Bank, latest year for each country",
+    })
+
+
+def comeback(s: dict) -> dict:
+    """s: the strongest comeback among peers of the least-connected countries."""
+    facts = [{"icon": "bolt", "label": "Ten years later", "value": f"{s['to']:.0f}% have power", "detail": f"from {s['from']:.0f}% in {s['year']}"}]
+    if s.get("rural"):
+        facts.append({"icon": "home", "label": "Villages", "value": f"{s['rural'][0]:.0f}% → {s['rural'][1]:.0f}% with power", "detail": None})
+    facts.append({"icon": "pin", "label": "Lesson for", "value": s["for_name"], "detail": f"{s['for_access']:.0f}% have power today"})
+    return tidy({
+        "verdict": f"{s['peer']} brought power to {s['gain']:.0f}% more of its people in a decade",
+        "facts": facts,
+        "why": f"In {s['year']} its path looked like {s['for_name']}'s does now, which is why Nahda pairs them.",
+        "source": f"Source: World Bank, {s['year']}–{s['year'] + 10}",
+    })
+
+
+def method() -> dict:
+    """How Nahda picks a peer ('twin'): the rule behind the Peers tab, in plain words."""
+    return {
+        "verdict": "It looks for countries that were once where this one is, then pulled ahead",
+        "facts": [{"icon": "pin", "label": "Same path", "value": "5 years of access, income and population", "detail": "dynamic time warping"},
+                  {"icon": "home", "label": "Same start", "value": "within 15 points of today's access", "detail": "and below 95%"},
+                  {"icon": "bolt", "label": "Then pulled ahead", "value": "gained at least 10 points in a decade", "detail": "or reached 95%"}],
+        "why": "The closest matches that gained the most come first.",
+        "source": "Source: World Bank data since 1990",
+    }
 
 
 # ---------- Cards from data ----------

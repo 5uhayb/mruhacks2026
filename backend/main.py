@@ -10,6 +10,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from contextlib import asynccontextmanager
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 
 import joblib
@@ -451,9 +452,10 @@ ADVISOR_DEADLINE_S = 20
 class AdvisorRequest(BaseModel):
     iso3: str | None = None
     question: str = Field(..., min_length=1, max_length=500)
-    kind: str | None = Field(None, description="first | peer | mix | risk | siting | peer_web")
+    kind: str | None = Field(None, description="first | peer | people | mix | risk | siting | least | comeback | method")
     split: dict[str, float] | None = None
     assumptions: dict[str, float] = {}
+    previous: str | None = Field(None, max_length=4000, description="the chat's last reply, so it is never repeated")
 
 
 class AdvisorAnswer(BaseModel):
@@ -463,8 +465,10 @@ class AdvisorAnswer(BaseModel):
     label: str
     # The answer card: verdict, 2-3 facts ({icon, label, value, detail}), why, source. None for greetings.
     card: dict | None = None
-    # Set when the question named another country: the answer is about that one
-    about: dict | None = None
+    # Set when the message named a country: the app selects it (flies to it, opens its panel); the answer is about it
+    select: dict | None = None
+    # Questions to offer as clickable chips under this reply
+    suggestions: list[str] = []
     meta: Meta
 
 
@@ -511,13 +515,85 @@ def advisor_data(f: dict) -> str:
 
 
 GREETING = re.compile(r"^\s*(hi|hello|hey|hiya|salam|salaam|assalamu alaikum|marhaba|good (morning|afternoon|evening)|yo|sup)\b[\s!.,?]*$", re.I)
+STARTERS = ["Which countries have the least electricity?", "Show me a comeback story", "How does Nahda pick a twin?"]
+WORLD_KINDS = ("least", "comeback", "method")
 
 
-def greet(name: str | None) -> str:
-    if name:
-        return (f"Hi! I can help you plan how {name} gets more people connected: ask what to do first, why its top peer "
-                f"succeeded, whether solar or wind fits better, or what could go wrong.")
-    return "Hi! Pick a country on the globe or search for one, and I'll help plan how it gets more people connected."
+@lru_cache(maxsize=1)
+def world_rows() -> list[dict]:
+    """Every country with data: latest electricity access and its year, lowest first."""
+    meta = pd.read_csv(model.DATA / "country_meta.csv").set_index("iso3")
+    rows = []
+    for iso3 in {iso for _, iso in cards.country_names()}:
+        lat = model.latest(iso3)
+        if lat["electricity_access_pct"] is None:
+            continue
+        region = meta.region.get(iso3)
+        rows.append({"iso3": iso3, "name": lat["country"], "access": lat["electricity_access_pct"],
+                     "year": lat["electricity_access_pct_year"], "region": None if pd.isna(region) else str(region)})
+    return sorted(rows, key=lambda r: r["access"])
+
+
+@lru_cache(maxsize=1)
+def comeback_story() -> dict | None:
+    """The biggest 10-year gain among the #1 peers of countries below 60% access: a real comeback, with the country
+    it is a lesson for."""
+    best = None
+    for r in world_rows():
+        if r["access"] >= 60:
+            break
+        try:
+            ps = peers(r["iso3"]).peers
+        except HTTPException:
+            continue
+        if ps and (best is None or ps[0]["access_change"] > best[0]["access_change"]):
+            best = (ps[0], r)
+    if best is None:
+        return None
+    x, r = best
+    rural = [s["rural"] for s in x["detail"]["series"] if s.get("rural") is not None]
+    return {"peer": x["country"], "peer_iso3": x["iso3"], "year": x["year"], "from": x["access"][0], "to": x["access"][-1],
+            "gain": x["access_change"], "rural": (rural[0], rural[-1]) if len(rural) >= 2 and rural[-1] - rural[0] >= 3 else None,
+            "for_name": r["name"], "for_iso3": r["iso3"], "for_access": r["access"]}
+
+
+def chips_for(iso3: str) -> list[str]:
+    """The four starter questions for a country, as the chat shows them."""
+    c = country(iso3)
+    p = peers(iso3).peers
+    end = (c.profile.get("year") or datetime.now().year) + 10
+    return [f"What should {c.name} do first?", f"What did {p[0]['country']} do differently?" if p else "Which country closed a gap like this?",
+            f"How many people would get power by {end}?", "How reliable is this plan?"]
+
+
+GREETINGS = ["Hi! Ask me about any country's electricity, or try one of these:",
+             "Hello! I can explain who lacks power and how countries catch up. Try:"]
+GREETINGS_COUNTRY = ["Hi! Ask me anything about {name}'s plan, or start here:",
+                     "Hello! Here's what I can tell you about {name}:"]
+HELP = ("I didn't catch that. I can tell you which countries have the least electricity, show a comeback story, "
+        "explain how Nahda picks a twin, or answer about any country you name. Try:")
+HELP_AGAIN = ("Still not sure what you mean. Name a country (like Sudan or Nigeria), or pick a question:")
+HELP_COUNTRY = ("I didn't catch that. For {name} I can say what to do first, what its top peer did differently, how many "
+                "people the plan connects and how reliable it is. Try:")
+HELP_COUNTRY_AGAIN = "Still not sure what you mean. Try one of these about {name}, or name another country:"
+SAME = "That's the same answer as just above. Here's what else I can tell you:"
+
+
+def pick(options: list[str], previous: str | None) -> str:
+    """The first wording that differs from the last reply, so the chat never repeats itself word for word."""
+    return next((o for o in options if o != previous), options[0])
+
+
+def text_answer(text: str, suggestions: list[str], start: float, detail: str, select: dict | None = None) -> "AdvisorAnswer":
+    return AdvisorAnswer(answer=text, sources=[], mode="greeting", label="", suggestions=suggestions, select=select,
+                         meta=Meta(detail=f"advisor · {detail}", server_ms=(time.time() - start) * 1000))
+
+
+def card_answer(card: dict, start: float, detail: str, *, suggestions: list[str] | None = None, select: dict | None = None,
+                mode: str = "offline", label: str = "", sources: list[dict] | None = None) -> "AdvisorAnswer":
+    return AdvisorAnswer(answer=" ".join(x for x in (card["verdict"] + ".", card["why"]) if x), sources=sources or [], mode=mode,
+                         label=label or advisor.OFFLINE, card=card, select=select, suggestions=suggestions or [],
+                         meta=Meta(detail=f"advisor · {detail}", server_ms=(time.time() - start) * 1000))
 
 
 @app.get("/api/advisor/status")
@@ -528,25 +604,61 @@ def advisor_status():
 
 @app.post("/api/advisor", response_model=AdvisorAnswer)
 def ask_advisor(req: AdvisorRequest):
-    """Short answer for the selected country. AI keys stay on the server; falls back to app data offline."""
+    """Answer cards from app data (AI first when a key is set). A country named anywhere in the message is selected
+    and answered about; without a country the chat answers world questions; greetings and unclear messages get a
+    short reply with suggested questions. Never returns the same reply twice in a row."""
     start = time.time()
-    name = model.latest(req.iso3)["country"] if req.iso3 and model.known(req.iso3) else None
-    if GREETING.match(req.question) or not req.iso3:
-        # Greetings get an instant friendly reply; without a country there is no data to reason about yet
-        text = greet(name)  # with no country selected, greet() asks the user to pick one
-        return AdvisorAnswer(answer=text, sources=[], mode="greeting", label="",
-                             meta=Meta(detail="advisor · greeting", server_ms=(time.time() - start) * 1000))
-    check(req.iso3)
-    # A question that names another country ("What about Mali?") is answered about that country, with its default plan
-    other = cards.named_country(req.question, req.iso3)
-    if other and other in {x["iso3"] for x in peers(req.iso3).peers}:
-        other = None  # "What did Cambodia do differently?" is about the open country's own peer, not a switch
-    if other:
-        req = req.model_copy(update={"iso3": other, "split": None, "assumptions": {}})
-    kind = req.kind if req.kind in cards.KINDS else ("peer" if req.kind == "peer_web" else cards.kind_of(req.question))
+    q = req.question
+    named = cards.find_country(q)
+    if named and req.iso3 and named != req.iso3 and named in {x["iso3"] for x in peers(req.iso3).peers}:
+        named = None  # "What did Cambodia do differently?" is about the open country's own peer, not a switch
+    if named == req.iso3:
+        named = None  # already selected
+    target = named or req.iso3
+    select = {"iso3": named, "name": model.latest(named)["country"]} if named else None
+    kind = req.kind or cards.kind_of(q)
+    if named and not req.kind and kind in (None, *WORLD_KINDS):
+        kind = "first"  # "Sudan" on its own, or "tell me about Sudan": the country's overview
+
+    def finish(out: AdvisorAnswer) -> AdvisorAnswer:
+        if out.answer != req.previous:
+            return out
+        return text_answer(SAME, chips_for(target) if target else STARTERS, start, "repeat avoided", out.select)
+
+    if GREETING.match(q):
+        name = model.latest(target)["country"] if target else None
+        text = pick([g.format(name=name) for g in GREETINGS_COUNTRY] if name else GREETINGS, req.previous)
+        return finish(text_answer(text, chips_for(target) if target else STARTERS, start, "greeting", select))
+
+    if kind in WORLD_KINDS:
+        if kind == "least":
+            rows = world_rows()
+            return finish(card_answer(cards.least(rows), start, "world card (least)",
+                                      suggestions=[f"Tell me about {r['name']}" for r in rows[:3]]))
+        if kind == "comeback":
+            s = comeback_story()
+            if s is None:
+                return finish(text_answer("No comeback story found in the data.", STARTERS, start, "comeback"))
+            return finish(card_answer(cards.comeback(s), start, "world card (comeback)",
+                                      suggestions=[f"Tell me about {s['for_name']}", "How does Nahda pick a twin?",
+                                                   "Which countries have the least electricity?"]))
+        return finish(card_answer(cards.method(), start, "world card (method)", suggestions=[x for x in STARTERS if "twin" not in x]))
+
+    if target is None:
+        return finish(text_answer(pick([HELP, HELP_AGAIN], req.previous), STARTERS, start, "help"))
+    check(target)
+    if kind is None:
+        name = model.latest(target)["country"]
+        return finish(text_answer(pick([HELP_COUNTRY.format(name=name), HELP_COUNTRY_AGAIN.format(name=name)], req.previous),
+                                  chips_for(target), start, "help", select))
+
+    if named:  # answered about the newly selected country, with its own default plan
+        req = req.model_copy(update={"iso3": named, "split": None, "assumptions": {}})
+    if kind == "peer_web":
+        kind = "peer"
     f = advisor_facts(req)
     data = advisor_data(f)
-    job = ADVISOR_POOL.submit(advisor.ask, req.question, data, cards.AI_FORMAT)
+    job = ADVISOR_POOL.submit(advisor.ask, q, data, cards.AI_FORMAT)
     try:  # never keep the demo waiting: past the deadline, answer from app data
         out = job.result(timeout=ADVISOR_DEADLINE_S)
     except FutureTimeout:
@@ -560,11 +672,8 @@ def ask_advisor(req: AdvisorRequest):
         out.update(mode="offline", label=advisor.OFFLINE, sources=[])
         card = cards.build(kind, f["c"], f["p"], f["sim"], f["a"], model.latest(req.iso3)["population"])
     detail = {"web": "Gemini + Google Search", "model": "Gemini (search unavailable)", "offline": f"card from data ({kind})"}[out["mode"]]
-    return AdvisorAnswer(answer=" ".join(x for x in (card["verdict"] + ".", card["why"]) if x), sources=out["sources"],
-                         mode=out["mode"], label=out["label"], card=card,
-                         about={"iso3": req.iso3, "name": f["c"].name} if other else None,
-                         meta=Meta(detail=f"advisor · {detail}" + (f" · {out['errors'][0]}" if out["errors"] else ""),
-                                   server_ms=(time.time() - start) * 1000))
+    return finish(card_answer(card, start, detail + (f" · {out['errors'][0]}" if out["errors"] else ""), select=select,
+                              mode=out["mode"], label=out["label"], sources=out["sources"]))
 
 
 @app.get("/api/assumptions")
