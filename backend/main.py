@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import advisor
+import cards
 import differences
 import electric
 import model
@@ -460,6 +461,10 @@ class AdvisorAnswer(BaseModel):
     sources: list[dict]
     mode: str
     label: str
+    # The answer card: verdict, 2-3 facts ({icon, label, value, detail}), why, source. None for greetings.
+    card: dict | None = None
+    # Set when the question named another country: the answer is about that one
+    about: dict | None = None
     meta: Meta
 
 
@@ -512,40 +517,7 @@ def greet(name: str | None) -> str:
     if name:
         return (f"Hi! I can help you plan how {name} gets more people connected: ask what to do first, why its top peer "
                 f"succeeded, whether solar or wind fits better, or what could go wrong.")
-    return "Hi! Pick a country on the globe or a quick pick, and I'll help plan how it gets more people connected."
-
-
-def advisor_offline(req: AdvisorRequest, f: dict) -> str:
-    """Instant answer from app data only, for when no AI service is reachable."""
-    c, p, sim, a = f["c"], f["p"], f["sim"], f["a"]
-    r = c.profile["resources"]
-    q = req.question.lower()
-    kind = req.kind or ("peer" if "peer" in q or "succeed" in q or "expand" in q else "risk" if "wrong" in q or "risk" in q
-                        else "first" if "first" in q else "siting" if "place" in q or "where" in q else "mix")
-    if kind == "first":
-        rec = sim.recommendation
-        return (" ".join(rec["banner"][1:2]) + " " + rec["banner"][0]
-                + (f" Lesson from {p.peers[0]['country']}: {p.peers[0]['lesson']}" if p.peers else ""))
-    if kind == "risk":
-        worst = min(sim.shocks.values(), key=lambda s: s["after"]["access_pct"])
-        return (f"The biggest single risk is \"{worst['label']}\": access in year 10 would reach {worst['after']['access_pct']:.0f}% "
-                f"instead of {worst['before']['access_pct']:.0f}%. In 9 of 10 budget futures access still reaches "
-                f"{sim.futures['access_p10']:.0f}%. Solar and wind are variable, so the plan keeps storage and a "
-                f"{sim.split['reserve']:.0f}% reserve." + (f" Warning: {sim.guardrails[0]}" if sim.guardrails else ""))
-    if kind == "peer":
-        if not p.peers:
-            return f"No peer meets the selection rule for {c.name} ({PEER_RULE.split(': ')[1]})"
-        x = p.peers[0]
-        return f"{x['country']} from {x['year']}: {x['changed']} {x['result']}." + (f" {p.playbook['line']}" if p.playbook else "")
-    if kind == "siting":
-        top_sun = sorted(r["sites"], key=lambda s: -s["solar"])[:2]
-        top_wind = sorted(r["sites"], key=lambda s: -s["wind"])[:2]
-        return ("Strongest sunlight: " + ", ".join(f"{s['site']} ({s['solar']:.1f} kWh/m²/day)" for s in top_sun)
-                + ". Strongest wind at 50 m: " + ", ".join(f"{s['site']} ({s['wind']:.1f} m/s)" for s in top_wind)
-                + ". These are NASA point averages; actual sites need local resource, land and grid studies.")
-    return (f"{c.name}'s best sunlight is {r['solar']['value']:.1f} kWh/m²/day ({electric.sun_word(r['solar']['value'], a)}) and best 50 m wind "
-            f"{r['wind']['value']:.1f} m/s ({electric.wind_word(r['wind']['value'], a)}). {sim.recommendation['banner'][0]} Both are variable, so "
-            f"grid & storage carry the power to homes and cover gaps.")
+    return "Hi! Pick a country on the globe or search for one, and I'll help plan how it gets more people connected."
 
 
 @app.get("/api/advisor/status")
@@ -565,16 +537,32 @@ def ask_advisor(req: AdvisorRequest):
         return AdvisorAnswer(answer=text, sources=[], mode="greeting", label="",
                              meta=Meta(detail="advisor · greeting", server_ms=(time.time() - start) * 1000))
     check(req.iso3)
+    # A question that names another country ("What about Mali?") is answered about that country, with its default plan
+    other = cards.named_country(req.question, req.iso3)
+    if other and other in {x["iso3"] for x in peers(req.iso3).peers}:
+        other = None  # "What did Cambodia do differently?" is about the open country's own peer, not a switch
+    if other:
+        req = req.model_copy(update={"iso3": other, "split": None, "assumptions": {}})
+    kind = req.kind if req.kind in cards.KINDS else ("peer" if req.kind == "peer_web" else cards.kind_of(req.question))
     f = advisor_facts(req)
-    job = ADVISOR_POOL.submit(advisor.ask, req.question, advisor_data(f))
+    data = advisor_data(f)
+    job = ADVISOR_POOL.submit(advisor.ask, req.question, data, cards.AI_FORMAT)
     try:  # never keep the demo waiting: past the deadline, answer from app data
         out = job.result(timeout=ADVISOR_DEADLINE_S)
     except FutureTimeout:
         out = {"answer": None, "sources": [], "mode": "offline", "label": advisor.OFFLINE, "errors": [f"AI over {ADVISOR_DEADLINE_S}s"]}
-    if out["answer"] is None:
-        out.update(answer=advisor_offline(req, f), label=advisor.OFFLINE)
-    detail = {"web": "Gemini + Google Search", "model": "Gemini (search unavailable)", "offline": "offline template"}[out["mode"]]
-    return AdvisorAnswer(answer=out["answer"], sources=out["sources"], mode=out["mode"], label=out["label"],
+    card = cards.from_ai(out["answer"], data) if out["answer"] else None
+    if card:
+        card["source"] = "Source: World Bank & NASA POWER" + (" + web search" if out["sources"] else "")
+    else:  # no AI, or its card failed the checks: the card built from data
+        if out["answer"]:
+            out["errors"].append("AI card failed checks")
+        out.update(mode="offline", label=advisor.OFFLINE, sources=[])
+        card = cards.build(kind, f["c"], f["p"], f["sim"], f["a"], model.latest(req.iso3)["population"])
+    detail = {"web": "Gemini + Google Search", "model": "Gemini (search unavailable)", "offline": f"card from data ({kind})"}[out["mode"]]
+    return AdvisorAnswer(answer=" ".join(x for x in (card["verdict"] + ".", card["why"]) if x), sources=out["sources"],
+                         mode=out["mode"], label=out["label"], card=card,
+                         about={"iso3": req.iso3, "name": f["c"].name} if other else None,
                          meta=Meta(detail=f"advisor · {detail}" + (f" · {out['errors'][0]}" if out["errors"] else ""),
                                    server_ms=(time.time() - start) * 1000))
 

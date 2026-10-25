@@ -44,36 +44,38 @@ def status() -> dict:
     return {"key": bool(os.getenv("GEMINI_API_KEY") or os.getenv("ANTHROPIC_API_KEY")), "last_mode": STATE["last_mode"]}
 
 
-def ask(question: str, data: str) -> dict:
-    out = _ask(question, data)
+def ask(question: str, data: str, fmt: str | None = None) -> dict:
+    """fmt: extra output instructions (the answer-card JSON format); the answer is then returned whole, not word-capped."""
+    out = _ask(question, data, fmt)
     STATE["last_mode"] = out["mode"]
     return out
 
 
-def _ask(question: str, data: str) -> dict:
+def _ask(question: str, data: str, fmt: str | None = None) -> dict:
     start = time.time()
-    prompt = f"NAHDA DATA (the only source for statistics):\n{data}\n\nQUESTION: {question}"
+    prompt = f"NAHDA DATA (the only source for statistics):\n{data}\n\nQUESTION: {question}" + (f"\n\nFORMAT:\n{fmt}" if fmt else "")
+    cap = fmt is None
     errors = []
     if os.getenv("GEMINI_API_KEY"):
         for grounded in (True, False):
             try:
                 text, sources = gemini(prompt, grounded)
-                return done(text, sources, "web" if grounded else "model", FOOTER_WEB if grounded else FOOTER_MODEL, start)
+                return done(text, sources, "web" if grounded else "model", FOOTER_WEB if grounded else FOOTER_MODEL, start, cap)
             except Exception as e:  # quota, network or model errors: fall through to the next option
                 errors.append(f"gemini{' + search' if grounded else ''}: {str(e)[:120]}")
     if os.getenv("ANTHROPIC_API_KEY"):
         try:
             text, sources = claude(prompt)
-            return done(text, sources, "web", FOOTER_WEB, start)
+            return done(text, sources, "web", FOOTER_WEB, start, cap)
         except Exception as e:
             errors.append(f"claude: {str(e)[:120]}")
     return {"answer": None, "sources": [], "mode": "offline", "label": OFFLINE, "errors": errors,
             "ms": (time.time() - start) * 1000}
 
 
-def done(text: str, sources: list[dict], mode: str, label: str, start: float) -> dict:
+def done(text: str, sources: list[dict], mode: str, label: str, start: float, cap: bool = True) -> dict:
     words = text.split()
-    if len(words) > 160:  # hard cap in case the model runs long
+    if cap and len(words) > 160:  # hard cap in case the model runs long (never for JSON cards, which it would break)
         text = " ".join(words[:140]) + "…"
     return {"answer": text.strip(), "sources": sources[:5], "mode": mode, "label": label, "errors": [],
             "ms": (time.time() - start) * 1000}

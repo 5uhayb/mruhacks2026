@@ -167,8 +167,26 @@ export type Simulation = {
 export type AssumptionSpec = { group: string; value: number; min: number; max: number; unit: string; label: string; note: string }
 export type SimulateInput = { iso3: string; split: Split | null; assumptions: Record<string, number> }
 
-export type AdvisorKind = 'mix' | 'peer' | 'siting' | 'first' | 'risk' | 'peer_web'
-export type AdvisorAnswer = { answer: string; sources: { title: string; url: string }[]; mode: 'web' | 'model' | 'offline' | 'greeting'; label: string; meta: Meta }
+export type AdvisorKind = 'mix' | 'peer' | 'siting' | 'first' | 'risk' | 'people' | 'peer_web'
+export type CardIcon = 'sun' | 'wind' | 'bolt' | 'home' | 'shield' | 'people' | 'pin'
+/** An answer card: one-line verdict, 2-3 label/value facts (exact values in detail), one "why" sentence, a source line */
+export type AnswerCard = {
+  verdict: string
+  facts: { icon: CardIcon; label: string; value: string; detail: string | null }[]
+  why: string
+  source: string
+}
+export type AdvisorAnswer = {
+  answer: string
+  sources: { title: string; url: string }[]
+  mode: 'web' | 'model' | 'offline' | 'greeting'
+  label: string
+  /** null for greetings, which are plain text */
+  card?: AnswerCard | null
+  /** set when the question named another country and the answer is about that one */
+  about?: { iso3: string; name: string } | null
+  meta: Meta
+}
 export type AdvisorStatus = { key: boolean; last_mode: AdvisorAnswer['mode'] | null }
 
 export const getWorld = async () => (await api.get<World>('/world')).data
