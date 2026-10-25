@@ -239,12 +239,79 @@ def peer_details(p: dict) -> dict:
     result = (f"{a1 - a0:+.0f}% more people connected ({a0:.0f}% → {a1:.0f}%)"
               + (f" · clean share {c['from']:.0f}% → {c['to']:.0f}%" if c["from"] is not None else ""))
     return {**p, "urban_gain": urban, "rural_gain": rural, "clean_gain": clean, "changed": changed, "result": result,
-            "access_change": a1 - a0}
+            "access_change": a1 - a0, "detail": peer_story(p, ch)}
+
+
+def peer_story(p: dict, ch: dict) -> dict:
+    """The peer's 10-year series, three data bullets, an honest clean-power trade-off, all from World Bank data."""
+    y0, y1 = p["year"], p["year"] + 10
+    m = electric.merged(p["iso3"])
+    w = m[(m.year >= y0) & (m.year <= y1)]
+    num = lambda v: None if pd.isna(v) else round(float(v), 2)  # noqa: E731
+    series = [{"year": int(r.year), "total": num(r.electricity_access_pct), "rural": num(r.rural_access_pct),
+               "urban": num(r.urban_access_pct), "clean": num(r.renewable_electricity_pct)} for r in w.itertuples()]
+    f = lambda v: f"{v:.0f}%" if abs(v) >= 10 else f"{v:.1f}%"  # noqa: E731
+    bullets = []
+    r, u = ch["rural_access_pct"], ch["urban_access_pct"]
+    if r["from"] is not None and u["from"] is not None:
+        city_share = electric.at(p["iso3"], "urban_pct", y0)["value"]
+        city_share = 50.0 if city_share is None else city_share
+        # Who gained more people: rural gain x rural population share vs urban gain x urban share
+        from_villages = (r["to"] - r["from"]) * (100 - city_share) >= (u["to"] - u["from"]) * city_share
+        bullets.append(f"Rural access rose from {f(r['from'])} to {f(r['to'])} while cities went from {f(u['from'])} to {f(u['to'])}: "
+                       f"most of the gain came from {'villages, not cities' if from_villages else 'cities, not villages'}.")
+    else:
+        bullets.append("No urban and rural split was measured for these years.")
+    c = ch["renewable_electricity_pct"]
+    if c["from"] is None:
+        # Clean share often stops before the window ends: use the first and last measured years inside it, named
+        cs = [(x["year"], x["clean"]) for x in series if x["clean"] is not None]
+        if len(cs) >= 2:
+            c = {"from": cs[0][1], "to": cs[-1][1], "from_year": cs[0][0], "to_year": cs[-1][0]}
+    if c["from"] is not None:
+        verb = "rose" if c["to"] - c["from"] >= 0.5 else "fell" if c["to"] - c["from"] <= -0.5 else "held"
+        span = "" if (c.get("from_year"), c.get("to_year")) == (y0, y1) or c.get("from_year") is None else f" ({c['from_year']}–{c['to_year']})"
+        bullets.append(f"Clean electricity {verb} {'at about ' + f(c['to']) if verb == 'held' else 'from ' + f(c['from']) + ' to ' + f(c['to'])} "
+                       f"of the power supply{span}.")
+    inv = ch["fixed_investment_pct_gdp"]
+    if inv["from"] is not None:
+        bullets.append(f"Investment went from {f(inv['from'])} to {f(inv['to'])} of the economy.")
+    g = differences.change(p["iso3"], "gdp_per_capita_usd", y0, y1)
+    if len(bullets) < 3 and g["from"]:
+        bullets.append(f"Income per person went from ${g['from']:,.0f} to ${g['to']:,.0f}.")
+    tradeoff = None
+    if c["from"] is not None and p["access"][-1] > p["access"][0] and c["to"] - c["from"] <= -2:
+        tradeoff = (f"Connected more people while its clean share fell from {f(c['from'])} to {f(c['to'])}, "
+                    "so fossil fuel generation grew faster than clean power.")
+    return {"years": [y0, y1], "series": series, "bullets": bullets[:3], "tradeoff": tradeoff,
+            "from_villages": bool(r["from"] is not None and u["from"] is not None and "villages, not" in bullets[0])}
+
+
+def lesson(iso3: str, peer: dict) -> str:
+    """One sentence linking the peer's data to the selected country's own data."""
+    name = model.latest(iso3)["country"]
+    prof = electric.profile(iso3)
+    acc, rur, urb = prof["access"]["value"], prof["rural"]["value"], prof["urban"]["value"]
+    a = electric.params(iso3=iso3)
+    sun = prof["resources"]["solar"]
+    if peer["detail"]["from_villages"] and rur is not None and urb is not None and urb - rur >= 15:
+        return (f"Like {peer['country']}, {name}'s gap is mostly rural ({rur:.0f}% rural vs {urb:.0f}% urban access), "
+                f"so lines to villages are where the gains are.")
+    if (peer["clean_gain"] or 0) >= 5 and sun and sun["value"] >= a["solar_threshold"]:
+        return (f"{peer['country']} raised its clean share while connecting people; {name}'s {electric.sun_word(sun['value'], a)} "
+                f"({sun['value']:.1f} kWh/m²/day) makes the same possible with solar.")
+    target = min(100.0, (acc or 0) + peer["access_change"])
+    return (f"{peer['country']} connected {peer['access_change']:+.0f}% more people in 10 years; the same pace would take "
+            f"{name} from {acc:.0f}% to about {target:.0f}%.")
+
+
+RANK_RULE = " Ranked 60% by similarity and 40% by the 10-year gain."
 
 
 class Peers(BaseModel):
     year: int
     access_now: float
+    top: str | None
     peers: list[dict]
     rule: str
     playbook: dict | None
@@ -257,16 +324,24 @@ class Peers(BaseModel):
 def peers(iso3: str):
     check(iso3)
     start = time.time()
-    found = ML["peers"].find_peers(iso3, end_year=electric.snapshot_year(iso3))
+    found = ML["peers"].find_peers(iso3, k=8, end_year=electric.snapshot_year(iso3))
     if found is None:
         raise HTTPException(404, f"Not enough history to find peers for {iso3}")
-    ps = [peer_details(p) for p in found["peers"]]
+    # Rank by similarity AND 10-year gain: 60% similarity, 40% gain (gains above 40 points count as 40)
+    for p in found["peers"]:
+        p["rank_score"] = 0.6 * p["similarity"] / 100 + 0.4 * min(40.0, p["access"][-1] - p["access"][0]) / 40
+    ps = [peer_details(p) for p in sorted(found["peers"], key=lambda p: -p["rank_score"])[:3]]
+    for p in ps:
+        p["lesson"] = lesson(iso3, p)
+    name = model.latest(iso3)["country"]
+    top = (f"#1 match: {ps[0]['country']} from {ps[0]['year']}, a {ps[0]['similarity']:.0f}% similar path to {name}'s, "
+           f"then {ps[0]['access_change']:+.0f}% more people connected within 10 years.") if ps else None
     playbook = None
     if ps:
         a = electric.params(iso3=iso3)
         rec = electric.recommend(iso3, a, electric.budget(iso3, a)["total"], ps[0])
         playbook = {"peer": ps[0]["iso3"], "peer_name": ps[0]["country"], "peer_year": ps[0]["year"], "split": rec["split"], "line": rec["line"]}
-    return Peers(year=found["year"], access_now=found["access_now"], peers=ps, rule=PEER_RULE, playbook=playbook,
+    return Peers(year=found["year"], access_now=found["access_now"], peers=ps, rule=PEER_RULE + RANK_RULE, playbook=playbook, top=top,
                  playbook_rule=electric.RULE, windows_searched=found["windows_searched"],
                  meta=Meta(detail=f"DTW over {found['windows_searched']:,} qualifying windows · {len(ps)} peers",
                            server_ms=(time.time() - start) * 1000))

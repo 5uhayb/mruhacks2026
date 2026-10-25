@@ -106,11 +106,19 @@ export type Peer = {
   changed: string
   result: string
   access_change: number
+  lesson: string
+  detail: {
+    years: [number, number]
+    series: { year: number; total: number | null; rural: number | null; urban: number | null; clean: number | null }[]
+    bullets: string[]
+    tradeoff: string | null
+  }
 }
 export type Playbook = { peer: string; peer_name: string; peer_year: number; split: Split; line: string }
 export type Peers = {
   year: number
   access_now: number
+  top: string | null
   peers: Peer[]
   rule: string
   playbook: Playbook | null
@@ -155,7 +163,7 @@ export type Simulation = {
 export type AssumptionSpec = { group: string; value: number; min: number; max: number; unit: string; label: string; note: string }
 export type SimulateInput = { iso3: string; split: Split | null; assumptions: Record<string, number> }
 
-export type AdvisorKind = 'mix' | 'peer' | 'siting'
+export type AdvisorKind = 'mix' | 'peer' | 'siting' | 'first' | 'risk' | 'peer_web'
 export type AdvisorAnswer = { answer: string; sources: { title: string; url: string }[]; mode: 'web' | 'model' | 'offline'; label: string; meta: Meta }
 
 export const getWorld = async () => (await api.get<World>('/world')).data
