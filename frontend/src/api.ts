@@ -62,7 +62,7 @@ export type ModelCard = {
   first_year: number
   last_year: number
 }
-export type Dated = { value: number | null; year: number | null }
+export type Dated = { value: number | null; year: number | null; latest?: { value: number; year: number } | null; last_measured?: number }
 export type Site = { site: string; lat: number; lon: number; solar: number; wind: number }
 export type BestSite = { value: number; site: string; lat: number; lon: number }
 export type Budget = {
@@ -75,7 +75,7 @@ export type Country = {
   name: string
   tier: string
   facts: Fact[]
-  profile: { access: Dated; urban: Dated; rural: Dated; clean: Dated; resources: { solar: BestSite | null; wind: BestSite | null; sites: Site[] } }
+  profile: { year: number | null; rule: string; access: Dated; urban: Dated; rural: Dated; clean: Dated; resources: { solar: BestSite | null; wind: BestSite | null; sites: Site[] } }
   badges: { label: string; rule: string }[]
   budget: Budget
   outlook: {
@@ -126,7 +126,7 @@ export type Simulation = {
   split: Split
   split_amounts: Split
   recommendation: { split: Split; banner: string; solar: number; wind: number }
-  start: { access: number; access_year: number | null; clean: number; clean_year: number | null; urban: Dated; rural: Dated }
+  start: { access: number; access_year: number | null; clean: number; clean_year: number | null; urban: Dated; rural: Dated; snapshot: number | null }
   years: YearRow[]
   cards: {
     solar: { mw: number; capex: number; payback: number | null; mwh: number; site: BestSite }

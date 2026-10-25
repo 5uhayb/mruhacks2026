@@ -94,12 +94,14 @@ class TwinIndex:
     def standardized(self, rows: pd.DataFrame) -> np.ndarray:
         return np.column_stack([(rows[f] - self.stats[f][0]) / self.stats[f][1] for f in self.features])
 
-    def find_peers(self, iso3: str, k: int = 3) -> dict | None:
-        """Closest matching windows from other countries that meet PEER_RULE, best window per country."""
+    def find_peers(self, iso3: str, k: int = 3, end_year: int | None = None) -> dict | None:
+        """Closest matching windows from other countries that meet PEER_RULE, best window per country.
+        end_year: the country's own window ends here (its snapshot year); default its latest measured year."""
         g = self.panel[self.panel.iso3 == iso3]
         if g.empty or not g.access_observed.any():
             return None
-        end = int(g.year[g.access_observed].max())
+        observed = g.year[g.access_observed]
+        end = int(observed[observed <= end_year].max()) if end_year is not None and (observed <= end_year).any() else int(observed.max())
         recent = g[(g.year > end - WINDOW) & (g.year <= end)]
         if len(recent) < WINDOW:
             return None

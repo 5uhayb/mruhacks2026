@@ -111,26 +111,69 @@ def resources(iso3: str) -> dict:
     }
 
 
-def profile(iso3: str) -> dict:
-    lat = model.latest(iso3)
+SNAPSHOT_RULE = ("Snapshot year: the most recent year in which total, urban and rural electricity access and the clean share "
+                 "all have real World Bank data. If that year is more than 5 years older than the latest year with total access "
+                 "and clean share, the snapshot uses that newer year and marks urban or rural access as having no data then. "
+                 "Every baseline uses the snapshot year; newer figures are shown separately.")
+STALE_YEARS = 5
+
+
+@lru_cache(maxsize=None)
+def merged(iso3: str) -> pd.DataFrame:
+    """One country's World Bank rows with urban and rural access joined in, by year (unfilled)."""
+    rows = model.country_rows(iso3)
     detail = access_detail()
-    return {
-        "access": {"value": lat["electricity_access_pct"], "year": lat["electricity_access_pct_year"]},
-        "urban": latest_value(detail, iso3, "urban_access_pct"),
-        "rural": latest_value(detail, iso3, "rural_access_pct"),
-        "clean": {"value": lat["renewable_electricity_pct"], "year": lat["renewable_electricity_pct_year"]},
-        "resources": resources(iso3),
-    }
+    return rows.merge(detail[detail.iso3 == iso3].drop(columns="iso3"), on="year", how="left").sort_values("year")
+
+
+SNAPSHOT_COLUMNS = {"access": "electricity_access_pct", "urban": "urban_access_pct", "rural": "rural_access_pct",
+                    "clean": "renewable_electricity_pct"}
+
+
+@lru_cache(maxsize=None)
+def snapshot_year(iso3: str) -> int | None:
+    m = merged(iso3)
+    full = m.dropna(subset=list(SNAPSHOT_COLUMNS.values()))
+    core = m.dropna(subset=[SNAPSHOT_COLUMNS["access"], SNAPSHOT_COLUMNS["clean"]])
+    full_year = int(full.year.max()) if len(full) else None
+    core_year = int(core.year.max()) if len(core) else None
+    if full_year is None or (core_year is not None and core_year - full_year > STALE_YEARS):
+        return core_year  # urban or rural access stopped being measured long ago: don't anchor everything to then
+    return full_year
+
+
+def at(iso3: str, col: str, year: int | None) -> dict:
+    """Value in `year` (or the latest at or before it); with year None, the latest value."""
+    s = merged(iso3)[["year", col]].dropna() if col in merged(iso3) else pd.DataFrame(columns=["year", col])
+    if year is not None:
+        s = s[s.year <= year]
+    return {"value": float(s[col].iloc[-1]), "year": int(s.year.iloc[-1])} if len(s) else {"value": None, "year": None}
+
+
+def profile(iso3: str) -> dict:
+    """Every metric at the country's snapshot year; a newer figure, where one exists, is kept as a separate note."""
+    snap = snapshot_year(iso3)
+    out = {"year": snap, "rule": SNAPSHOT_RULE, "resources": resources(iso3)}
+    for key, col in SNAPSHOT_COLUMNS.items():
+        base, newest = at(iso3, col, snap), at(iso3, col, None)
+        if snap is not None and base["year"] is not None and base["year"] != snap:
+            # No value in the snapshot year itself: say when it was last measured instead of mixing years
+            base = {"value": None, "year": None, "last_measured": base["year"]}
+        out[key] = {**base, "latest": newest if snap is not None and newest["year"] and newest["year"] > snap else None}
+    return out
 
 
 def budget(iso3: str, a: dict) -> dict:
-    """Yearly budget = GDP x share, plus resource income x share where the country has resource income."""
-    lat = model.latest(iso3)
-    gdp = lat["gdp_usd"] or 0.0
-    res = model.revenue_baseline(iso3) if model.revenue_history(iso3) else None
+    """Yearly budget = GDP x share, plus resource income x share where the country has resource income.
+    Both at the snapshot year: GDP of that year, resource income averaged over the 5 years up to it."""
+    snap = snapshot_year(iso3)
+    g = at(iso3, "gdp_usd", snap)
+    gdp = g["value"] or 0.0
+    hist = [r for r in model.revenue_history(iso3) if snap is None or r["year"] <= snap][-5:]
+    res = {"avg": float(np.mean([r["revenue"] for r in hist])), "years": [r["year"] for r in hist]} if hist else None
     res_avg = res["avg"] if res else 0.0
     parts = {
-        "gdp": {"base": gdp, "year": lat["gdp_usd_year"], "share": a["budget_gdp_share"], "amount": gdp * a["budget_gdp_share"]},
+        "gdp": {"base": gdp, "year": g["year"], "share": a["budget_gdp_share"], "amount": gdp * a["budget_gdp_share"]},
         "resource": {"base": res_avg, "years": [res["years"][0], res["years"][-1]] if res else None,
                      "word": model.resource_word(iso3), "share": a["budget_resource_share"],
                      "amount": res_avg * a["budget_resource_share"]},
@@ -139,13 +182,18 @@ def budget(iso3: str, a: dict) -> dict:
 
 
 def context(iso3: str, a: dict) -> dict:
-    lat = model.latest(iso3)
+    """Baseline at the snapshot year."""
+    snap = snapshot_year(iso3)
     r = resources(iso3)
+    pop = at(iso3, "population", snap)["value"] or model.latest(iso3)["population"]
+    access = at(iso3, "electricity_access_pct", snap)["value"]
+    kwh = at(iso3, "kwh_per_person", snap)["value"]
     return {
-        "population": lat["population"],
-        "access0": lat["electricity_access_pct"] if lat["electricity_access_pct"] is not None else 100.0,
-        "renew0": lat["renewable_electricity_pct"] or 0.0,
-        "demand_mwh": lat["population"] * (lat["kwh_per_person"] or 1500.0) / 1000,
+        "year": snap,
+        "population": pop,
+        "access0": access if access is not None else 100.0,
+        "renew0": at(iso3, "renewable_electricity_pct", snap)["value"] or 0.0,
+        "demand_mwh": pop * (kwh or 1500.0) / 1000,
         "solar": r["solar"]["value"] if r["solar"] else 0.0,
         "wind": r["wind"]["value"] if r["wind"] else 0.0,
     }

@@ -91,8 +91,10 @@ def iso2_codes() -> dict[str, str]:
 
 
 QUICK_PICK_COLUMNS = ["electricity_access_pct", "renewable_electricity_pct", "gdp_usd", "population", "kwh_per_person"]
-QUICK_PICK_RULE = ("Quick picks: the 5 countries below 90% electricity access with the most World Bank values since 2000 "
-                   "(access, urban and rural access, clean share, GDP, population, electricity use) plus NASA sites.")
+# The demo's featured countries, in order (a presentation choice, not data); any not below 90% access are skipped
+HERO_COUNTRIES = ["LBY", "NGA", "KEN", "BWA", "CIV"]
+QUICK_PICK_RULE = ("Featured demo countries, all below 90% electricity access; the remaining slots, if any, go to the countries "
+                   "below 90% with the most World Bank values since 2000 plus NASA sites.")
 
 
 def coverage(iso3: str, raw: pd.DataFrame, detail: pd.DataFrame) -> int:
@@ -148,7 +150,8 @@ def world():
         if last is not None and last.electricity_access_pct < TARGET_ACCESS and iso2.get(iso3):
             picks.append({"iso3": iso3, "iso2": iso2[iso3], "name": str(g.country.iloc[0]), "access": float(last.electricity_access_pct),
                           "year": int(last.year), "coverage": coverage(iso3, panel, detail)})
-    picks = sorted(picks, key=lambda p: -p["coverage"])[:5]
+    hero = [p for iso in HERO_COUNTRIES for p in picks if p["iso3"] == iso]
+    picks = (hero + sorted((p for p in picks if p["iso3"] not in HERO_COUNTRIES), key=lambda p: -p["coverage"]))[:5]
     years = sorted({y for c in out for y in [*c.access, *c.projected]})
     _world_cache["data"] = World(years=years, countries=out, quick_picks=picks, quick_pick_rule=QUICK_PICK_RULE, meta=Meta(
         detail=f"{len(out)} countries · quick picks by data coverage", server_ms=(time.time() - start) * 1000))
@@ -254,7 +257,7 @@ class Peers(BaseModel):
 def peers(iso3: str):
     check(iso3)
     start = time.time()
-    found = ML["peers"].find_peers(iso3)
+    found = ML["peers"].find_peers(iso3, end_year=electric.snapshot_year(iso3))
     if found is None:
         raise HTTPException(404, f"Not enough history to find peers for {iso3}")
     ps = [peer_details(p) for p in found["peers"]]
@@ -329,8 +332,8 @@ def simulate(req: SimulateRequest):
         budget=b, split=dict(zip(electric.BUCKETS, (split * 100).tolist())),
         split_amounts=dict(zip(electric.BUCKETS, (split * b["total"]).tolist())),
         recommendation=rec,
-        start={"access": ctx["access0"], "access_year": prof["access"]["year"], "clean": ctx["renew0"], "clean_year": prof["clean"]["year"],
-               "urban": prof["urban"], "rural": prof["rural"]},
+        start={"access": ctx["access0"], "access_year": ctx["year"], "clean": ctx["renew0"], "clean_year": ctx["year"],
+               "urban": prof["urban"], "rural": prof["rural"], "snapshot": prof["year"]},
         years=rows,
         cards={
             "solar": {"mw": last["solar_mw"], "capex": float(base["solar_capex"][0, -1]), "payback": pay["solar"],

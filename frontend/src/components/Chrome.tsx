@@ -67,6 +67,7 @@ export function CommandBar({ countries, quickPicks, quickPickRule, onSelect }: {
         <div className="text-faint text-[0.75rem]">Match under-connected countries with peers that closed their electricity gap.</div>
       </div>
       <div className="pointer-events-auto relative w-[420px]">
+        <div className="relative">
         <input
           ref={input}
           type="text"
@@ -89,6 +90,7 @@ export function CommandBar({ countries, quickPicks, quickPickRule, onSelect }: {
           aria-label="Search a country"
         />
         <kbd className="num text-faint border-edge pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border px-1.5 text-[0.7rem]">Ctrl K</kbd>
+        </div>
         {open && flat.length > 0 && (
           <div className="bg-panel border-edge scroll-thin absolute top-full right-0 left-0 mt-1 max-h-[60vh] overflow-y-auto rounded-md border">
             {groups.map((g) => (

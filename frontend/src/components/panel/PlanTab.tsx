@@ -97,7 +97,7 @@ export default function PlanTab({ country, sim, split, setSplit, onRecommended, 
       <Section title="Budget" right={<span className="num text-gold text-[0.95rem]">{formatMoney(b.total, 2)} / yr</span>}>
         <div className="space-y-1.5 text-[0.84rem]">
           <div className="flex items-center justify-between gap-3">
-            <span className="flex items-center gap-1.5"><ShareInput label="Share of GDP" value={b.gdp.share} onChange={set('budget_gdp_share')} />% of GDP ({formatMoney(b.gdp.base)}, {b.gdp.year})</span>
+            <span className="flex items-center gap-1.5"><ShareInput label="Share of GDP" value={b.gdp.share} onChange={set('budget_gdp_share')} />% of GDP ({formatMoney(b.gdp.base)})</span>
             <span className="num">{formatMoney(b.gdp.amount, 2)}</span>
           </div>
           {b.resource.base > 0 && (
@@ -143,7 +143,7 @@ export default function PlanTab({ country, sim, split, setSplit, onRecommended, 
               <div>Lines reach ~{formatCompact(sim.cards.grid.households)} homes</div>
             </Card>
             <Card label="Electricity access" value={<CountUp value={sim.cards.access.value} format={(v) => formatPct(v)} />} note={GRID_NOTE}>
-              <div>From {formatPct(sim.start.access)} ({sim.start.access_year}) · clean share {formatPct(sim.cards.access.clean)}</div>
+              <div>From {formatPct(sim.start.access)} · clean share {formatPct(sim.cards.access.clean)}</div>
               <div>Limited by {sim.limit === 'lines' ? 'lines (more grid & storage helps)' : 'generation (more solar or wind helps)'}</div>
             </Card>
           </div>

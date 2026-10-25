@@ -7,7 +7,13 @@ function percentileText(p: number, kind: string): string | null {
   return p >= 50 ? `Top ${Math.max(1, Math.round(100 - p))}%` : `Bottom ${Math.max(1, Math.round(p))}%`
 }
 
-const dated = (d: Dated, digits = 1) => ({ value: formatPct(d.value, digits), sub: d.year ? `Latest available: ${d.year}` : 'No data' })
+/** Value at the snapshot year (shown in the header); a newer figure only as a small separate note */
+const dated = (d: Dated, digits = 1) => ({
+  value: d.value != null ? formatPct(d.value, digits) : '—',
+  sub: d.value == null
+    ? (d.last_measured ? `No data since ${d.last_measured}` : 'No data')
+    : d.latest ? `Latest ${d.latest.year} figure: ${formatPct(d.latest.value, digits)}` : undefined,
+})
 
 export default function Profile({ country, onPlan }: { country: Country; onPlan: () => void }) {
   const p = country.profile
@@ -63,7 +69,7 @@ export default function Profile({ country, onPlan }: { country: Country; onPlan:
       <Section title="Available budget" right={<button onClick={onPlan} className="hover:text-ink">Edit in Plan →</button>}>
         <div className="num text-gold text-[1.4rem]">{formatMoney(b.total, 2)} <span className="text-mute text-[0.85rem]">a year (estimate)</span></div>
         <div className="text-mute mt-1.5 space-y-0.5 text-[0.82rem]">
-          <div>{formatPct(b.gdp.share * 100)} of GDP ({formatMoney(b.gdp.base)}, {b.gdp.year}) = {formatMoney(b.gdp.amount, 2)}</div>
+          <div>{formatPct(b.gdp.share * 100)} of GDP ({formatMoney(b.gdp.base)}) = {formatMoney(b.gdp.amount, 2)}</div>
           {b.resource.base > 0
             ? <div>+ {formatPct(b.resource.share * 100, 0)} of {b.resource.word} income ({formatMoney(b.resource.base)}/yr) = {formatMoney(b.resource.amount, 2)}</div>
             : <div>No resource income in the World Bank data.</div>}

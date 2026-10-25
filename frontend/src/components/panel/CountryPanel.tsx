@@ -23,11 +23,16 @@ export default function CountryPanel({ country, tab, setTab, onClose, onExport, 
           <div>
             <h2 className="flex items-center gap-2.5 text-[1.5rem] leading-tight font-semibold tracking-tight">
               {country && <Flag iso3={country.iso3} />}{country?.name ?? 'Loading…'}
+              {country && (
+                <span className="text-mute cursor-help text-[0.9rem] font-normal" title={country.profile.rule}>
+                  · {country.profile.year ? `data as of ${country.profile.year}` : 'latest available data'}
+                </span>
+              )}
             </h2>
             {country && (
               <div className="text-mute mt-0.5 cursor-help text-[0.8rem] underline decoration-dotted underline-offset-4"
                 title="Tiers by latest electricity access: Critical below 60%, Struggling 60–90%, Connected 90%+.">
-                {country.tier} · {formatPct(country.profile.access.value)} access ({country.profile.access.year}) · {country.iso3}
+                {country.tier} · {formatPct(country.profile.access.value)} have electricity · {country.iso3}
               </div>
             )}
           </div>

@@ -14,10 +14,10 @@
   --color-down: #ef5350;
 }
 
-html, body, #root { height: 100%; }
+html, body, #root { height: 100%; background-color: #070A12; color: #F8FAFC; }  /* never flashes white */
 html {
   font-size: 15px;
-  background: var(--color-space);
+  background: #070A12;
   color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
