@@ -63,7 +63,7 @@ function App() {
   const [sim, setSim] = useState<Simulation | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Load the world, outlines and assumptions; preload the first quick pick so the first click is instant
+  // Load the world, outlines and assumptions; preload one likely first click (the backend's first suggested country)
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>
     const load = () =>
@@ -198,10 +198,10 @@ function App() {
       )}
       {!world && <div className="text-mute absolute inset-0 grid place-items-center text-[0.9rem]">{error ?? 'Loading the world…'}</div>}
 
-      {world && <CommandBar countries={world.countries} quickPicks={world.quick_picks} quickPickRule={world.quick_pick_rule} onSelect={select} />}
+      {world && <CommandBar countries={world.countries} onSelect={select} />}
 
       {world && (
-        <div className="fade text-mute bg-space/70 pointer-events-none absolute top-[146px] left-5 z-10 space-y-1 rounded-md px-2.5 py-2 text-[0.72rem]">
+        <div className="fade text-mute bg-space/70 pointer-events-none absolute top-[76px] left-5 z-10 space-y-1 rounded-md px-2.5 py-2 text-[0.72rem]">
           <div className="text-ink">Electricity access ({shownYear}{shownYear > lastMeasured ? ', forecast' : ''})</div>
           <div className="flex gap-3">
             {[...TIERS].reverse().map((t) => (
@@ -215,9 +215,9 @@ function App() {
         </div>
       )}
       {world && !selected && (
-        <div className="fade pointer-events-none absolute top-[226px] left-5 z-10 max-w-[440px]">
+        <div className="fade pointer-events-none absolute top-[156px] left-5 z-10 max-w-[440px]">
           <p className="text-[1.05rem] leading-snug">Turning the lights back on.</p>
-          <p className="text-mute mt-1.5 text-[0.85rem]">Click a country, a quick pick above, or press Ctrl K to search.</p>
+          <p className="text-mute mt-1.5 text-[0.85rem]">Click a country, or press Ctrl K to search.</p>
         </div>
       )}
 

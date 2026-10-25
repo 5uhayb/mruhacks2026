@@ -17,7 +17,7 @@ export default function CountryPanel({ country, tab, setTab, onClose, onExport, 
   children: ReactNode
 }) {
   return (
-    <aside className="bg-panel border-edge slide-in absolute top-[140px] right-4 bottom-[68px] z-20 flex w-[min(40vw,640px)] min-w-[440px] flex-col overflow-hidden rounded-md border">
+    <aside className="bg-panel border-edge slide-in absolute top-[76px] right-4 bottom-[68px] z-20 flex w-[min(40vw,640px)] min-w-[440px] flex-col overflow-hidden rounded-md border">
       <header className="border-edge border-b px-5 pt-4">
         <div className="flex items-start justify-between gap-4">
           <div>
