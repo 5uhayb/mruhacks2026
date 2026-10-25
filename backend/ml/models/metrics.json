@@ -5,17 +5,17 @@
  "test_years": "2013\u20132015",
  "all": {
   "rows": 392,
-  "mae": 3.1226209218357743,
+  "mae": 3.2577658944434535,
   "baseline_mae": 6.530612244897959,
-  "error_reduction": 0.521848671343897,
-  "r2": 0.6150484211645709
+  "error_reduction": 0.5011545974133462,
+  "r2": 0.5744808466344693
  },
  "under_95": {
   "rows": 161,
-  "mae": 7.338742761415004,
+  "mae": 7.6461412120249195,
   "baseline_mae": 15.231055900621117,
-  "error_reduction": 0.5181724228905409,
-  "r2": 0.21596070815261703
+  "error_reduction": 0.4979900762025886,
+  "r2": 0.13334476808472429
  },
  "declines_share": 0.03605870020964361,
  "target": "share of the remaining electricity gap closed in 10 years (0\u20131)",

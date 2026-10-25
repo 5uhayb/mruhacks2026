@@ -8,6 +8,8 @@ Declines are rare and treated as "no progress" (the share of training windows af
 Honest evaluation: train on starting years up to 2003 (outcomes by 2013), test on starting years
 2013-2015 (outcomes 2023-2025). No test input year overlaps any training outcome."""
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import shap
@@ -20,26 +22,29 @@ TEST_STARTS = (2013, 2014, 2015)
 NO_GAP = 99.95  # at or above this, there is no gap left to close
 UNDER_95 = 95.0
 
+# Electricity-only factors. Rural access is the World Bank series carried forward at most 3 years; older or never
+# measured values are left missing (the model handles missing values), so a stale figure can't drive a forecast.
 FEATURES = [
-    "electricity_access_pct", "access_change_5y", "oil_rents_pct_gdp", "log_gdp_per_capita",
-    "renewable_electricity_pct", "urban_pct", "log_population", "investment_pct_gdp",
+    "electricity_access_pct", "rural_access_pct", "access_change_5y", "investment_pct_gdp", "renewable_electricity_pct",
 ]
 LABELS = {
-    "electricity_access_pct": "How many already have power",
+    "electricity_access_pct": "Current electricity access",
+    "rural_access_pct": "Rural electricity access",
     "access_change_5y": "5-year connection trend",
-    "oil_rents_pct_gdp": "Oil share of the economy",
-    "log_gdp_per_capita": "Income per person",
-    "renewable_electricity_pct": "Clean electricity share",
-    "urban_pct": "Share of people in cities",
-    "log_population": "Population size",
     "investment_pct_gdp": "How much the country invests",
+    "renewable_electricity_pct": "Clean electricity share",
 }
+
+
+RURAL_CARRY_YEARS = 3
+DATA = Path(__file__).resolve().parent.parent / "data"
 
 
 def build_dataset(panel: pd.DataFrame) -> pd.DataFrame:
     p = panel.sort_values(["iso3", "year"]).copy()
-    p["log_gdp_per_capita"] = np.log10(p.gdp_per_capita_usd)
-    p["log_population"] = np.log10(p.population)
+    raw = pd.read_csv(DATA / "electricity.csv")[["iso3", "year", "rural_access_pct"]]
+    p = p.drop(columns=[c for c in ["rural_access_pct"] if c in p]).merge(raw, on=["iso3", "year"], how="left")
+    p["rural_access_pct"] = p.groupby("iso3").rural_access_pct.ffill(limit=RURAL_CARRY_YEARS)
     rows = []
     for iso3, g in p.groupby("iso3"):
         g = g.set_index("year")
