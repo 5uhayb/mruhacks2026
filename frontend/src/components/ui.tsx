@@ -147,13 +147,21 @@ function ringArea(ring: number[][]): number {
   return a / 2
 }
 
+let webgl: boolean | null = null
+
+/** Checked once and cached: every check creates a WebGL context, and browsers allow only ~16 at a time,
+ *  so checking on every render would push out the globe's own context (blank globe, then a crashed tab). */
 export function hasWebGL(): boolean {
+  if (webgl != null) return webgl
   try {
     const c = document.createElement('canvas')
-    return !!(c.getContext('webgl2') || c.getContext('webgl'))
+    const gl = (c.getContext('webgl2') || c.getContext('webgl')) as WebGLRenderingContext | null
+    webgl = !!gl
+    gl?.getExtension('WEBGL_lose_context')?.loseContext()  // release the test context right away
   } catch {
-    return false
+    webgl = false
   }
+  return webgl
 }
 
 // ---------- Colors ----------
