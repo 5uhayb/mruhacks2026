@@ -56,7 +56,20 @@ function Detail({ country, peer, isPlaybookPeer, onPlaybook, onBack }: {
   return (
     <Section title={`${peer.country}, ${d.years[0]}–${d.years[1]}`} right={<button onClick={onBack} className="hover:text-ink">← All peers</button>}>
       <div className="space-y-4">
-        <p className="text-[0.88rem] leading-snug">{peer.why_match}</p>
+        <div>
+          <p className="text-[0.9rem] leading-snug">{peer.match.story}</p>
+          <table className="text-faint num mt-2 w-full text-[0.74rem]">
+            <thead>
+              <tr className="text-left"><th className="pb-0.5 font-normal" /><th className="pb-0.5 font-normal">{peer.match.me}</th><th className="pb-0.5 font-normal">{peer.match.them}</th></tr>
+            </thead>
+            <tbody>
+              {peer.match.rows.map((r) => (
+                <tr key={r.label} className="border-edge border-t"><td className="py-0.5 pr-2 font-sans">{r.label}</td><td>{r.me}</td><td>{r.them}</td></tr>
+              ))}
+            </tbody>
+          </table>
+          {peer.match.difference && <p className="text-mute mt-1.5 text-[0.8rem]">{peer.match.difference}</p>}
+        </div>
         <div className="h-[180px]">
           <div className="text-mute mb-1 flex flex-wrap gap-x-3 text-[0.72rem]">
             {LINES.map((l) => <span key={l.key}><span className="mr-1 inline-block h-[2px] w-3 align-middle" style={{ background: l.color }} />{l.label}</span>)}
@@ -126,7 +139,7 @@ export default function PeersTab({ country, peers, onPlaybook }: { country: Coun
                         <Flag iso3={p.iso3} /><span className="font-medium">{p.country}</span>
                         <span className="num text-mute text-[0.76rem]">{p.year} · {Math.round(p.similarity)}% similar · started at {formatPct(p.access[0], 0)}</span>
                       </div>
-                      <div className="mt-1 text-[0.84rem]">{p.changed}</div>
+                      <div className="mt-1 text-[0.84rem] leading-snug">{p.match.story}</div>
                       <div className="text-mute mt-0.5 text-[0.78rem]">{p.result}</div>
                     </div>
                     <Sparkline points={p.access.map((v, j) => ({ year: p.year + j, value: v }))} color="#5ec8e5" unit="%" />

@@ -311,46 +311,113 @@ def lesson(iso3: str, peer: dict) -> str:
 RANK_RULE = " Ranked 60% by similarity and 40% by the 10-year gain."
 
 
-def why_match(iso3: str, name: str, peer: dict) -> str:
-    """Plain sentence on why a peer matches, from the features the matching actually compared (at the end of each
-    5-year path): access, urban and rural access, clean share, income per person, population. Picks the 3 closest."""
-    snap, y = electric.snapshot_year(iso3), peer["year"]
-    me = lambda col: electric.at(iso3, col, snap)["value"]  # noqa: E731
-    them = lambda col: electric.at(peer["iso3"], col, y)["value"]  # noqa: E731
-    stats = ML["peers"].stats
-    options = []
+# ---------- Why a peer matches: word bands, never raw numbers called "similar" ----------
 
-    def add(col, phrase, scale_col=None):
-        a, b = them(col), me(col)
-        if a is None or b is None:
-            return
-        sd = stats.get(scale_col or col, (0, 1))[1] or 1
-        options.append((abs(a - b) / sd, phrase(a, b)))
+def access_band(v: float) -> str:
+    return "almost everyone" if v >= 95 else "most people" if v >= 80 else "about two-thirds" if v >= 60 else "about half" if v >= 40 else "few"
 
-    add("electricity_access_pct", lambda a, b: f"a similar share of people with power ({a:.0f}% vs {b:.0f}%)")
-    rural_y = electric.at(peer["iso3"], "rural_access_pct", y)
-    rural_me = electric.profile(iso3)["rural"]["value"]
-    if rural_y["value"] is not None and rural_me is not None and rural_y["year"] == y:
-        sd = stats.get("rural_access_pct", (0, 1))[1] or 1
-        options.append((abs(rural_y["value"] - rural_me) / sd,
-                        f"a similar rural gap ({100 - rural_y['value']:.0f}% vs {100 - rural_me:.0f}% of rural people without power)"))
-    add("urban_access_pct", lambda a, b: f"similar power in cities ({a:.0f}% vs {b:.0f}%)")
-    small = lambda v: f"{v:.2f}%" if v < 1 else f"{v:.1f}%"  # noqa: E731
-    add("renewable_electricity_pct", lambda a, b: (f"a small clean share ({small(a)} vs {small(b)})" if max(a, b) < 10
-                                                   else f"a similar clean share ({a:.0f}% vs {b:.0f}%)"))
-    gdp_a, gdp_b = them("gdp_per_capita_usd"), me("gdp_per_capita_usd")
-    if gdp_a and gdp_b:
-        sd = stats.get("log_gdp_per_capita", (0, 1))[1] or 1
-        options.append((abs(np.log10(gdp_a) - np.log10(gdp_b)) / sd, f"similar income per person (${gdp_a:,.0f} vs ${gdp_b:,.0f})"))
-    pop_a, pop_b = them("population"), me("population")
-    if pop_a and pop_b:
-        sd = stats.get("log_population", (0, 1))[1] or 1
-        options.append((abs(np.log10(pop_a) - np.log10(pop_b)) / sd, f"a similar population ({pop_a / 1e6:.1f} vs {pop_b / 1e6:.1f} million)"))
-    best = [ph for _, ph in sorted(options)[:3]]
-    if not best:
-        return f"{peer['country']} in {y} followed a similar 5-year electricity path to {name}'s."
-    listed = ", ".join(best[:-1]) + (", and " if len(best) > 1 else "") + best[-1]
-    return f"{peer['country']} in {y} looked like {name} in {snap}: {listed}."
+
+def city_band(total: float, urban: float | None, rural: float | None) -> str | None:
+    if urban is None or rural is None:
+        return None  # not measured: this trait can't be compared
+    if urban - rural >= 15:
+        return "countryside behind"
+    return "gaps everywhere" if total < 90 else "no big gap"
+
+
+def clean_band(v: float) -> str:
+    return "almost none" if v < 5 else "a small share" if v < 20 else "a sizeable share" if v <= 50 else "most"
+
+
+def trend_band(v: float) -> str:
+    return "losing ground" if v < -1 else "stalled" if v <= 2 else "steadily expanding"
+
+
+ACCESS_CLAUSE = {"almost everyone": "had power for almost everyone", "most people": "had power for most people",
+                 "about two-thirds": "had power for about two-thirds of its people", "about half": "had power for about half of its people",
+                 "few": "had power for few of its people"}
+CITY_CLAUSE = {"countryside behind": "had power in its cities but was leaving the countryside behind",
+               "gaps everywhere": "had power gaps in cities and towns alike", "no big gap": "had no big gap between cities and countryside"}
+CLEAN_CLAUSE = {"almost none": "got almost none of its electricity from clean sources", "a small share": "got a small share of its electricity from clean sources",
+                "a sizeable share": "got a sizeable share of its electricity from clean sources", "most": "got most of its electricity from clean sources"}
+TREND_CLAUSE = {"losing ground": "was losing ground on connections", "stalled": "had stalled on connections",
+                "steadily expanding": "was steadily expanding connections"}
+MAINLY = {"access": lambda b: f"having power for {ACCESS_CLAUSE[b].removeprefix('had power for ')}",
+          "city": lambda b: CITY_CLAUSE[b].replace("had power in its cities but was leaving", "having power in its cities but leaving")
+                                           .replace("had power gaps", "having power gaps").replace("had no big gap", "having no big gap"),
+          "clean": lambda b: f"getting {b} of its electricity from clean sources",
+          "trend": lambda b: {"losing ground": "losing ground on connections", "stalled": "having stalled on connections",
+                              "steadily expanding": "steadily expanding connections"}[b]}
+
+
+def traits(iso3: str, year: int) -> dict:
+    """Electricity traits at one year: total, urban, rural access, clean share, 5-year trend (raw values, None if missing)."""
+    exact = lambda col, y: (lambda v: v["value"] if v["year"] == y else None)(electric.at(iso3, col, y))  # noqa: E731
+    total = exact("electricity_access_pct", year)
+    before = exact("electricity_access_pct", year - 5)
+    return {"total": total, "urban": exact("urban_access_pct", year), "rural": exact("rural_access_pct", year),
+            "clean": exact("renewable_electricity_pct", year), "trend": (total - before) if total is not None and before is not None else None}
+
+
+def bands(t: dict) -> dict:
+    return {"access": access_band(t["total"]) if t["total"] is not None else None,
+            "city": city_band(t["total"], t["urban"], t["rural"]) if t["total"] is not None else None,
+            "clean": clean_band(t["clean"]) if t["clean"] is not None else None,
+            "trend": trend_band(t["trend"]) if t["trend"] is not None else None}
+
+
+def joined(parts: list[str]) -> str:
+    if len(parts) <= 2:
+        return " and ".join(parts)
+    return ", ".join(parts[:-1]) + ", and " + parts[-1]
+
+
+def match_story(iso3: str, name: str, peer: dict) -> dict:
+    """Two plain sentences (shared situation, what happened next), a comparison table, and one key difference.
+    Traits count as shared only when both countries fall in the same word band."""
+    snap, y, pname = electric.snapshot_year(iso3), peer["year"], peer["country"]
+    me, them = traits(iso3, snap), traits(peer["iso3"], y)
+    mb, tb = bands(me), bands(them)
+    clauses = {"access": ACCESS_CLAUSE, "city": CITY_CLAUSE, "clean": CLEAN_CLAUSE, "trend": TREND_CLAUSE}
+    shared = [k for k in ["city", "access", "clean", "trend"] if mb[k] and mb[k] == tb[k]]
+    if len(shared) >= 2:
+        one = f"Like {name} in {snap}, {pname} in {y} {joined([clauses[k][tb[k]] for k in shared])}."
+    elif len(shared) == 1:
+        one = f"{pname} in {y} matched {name} mainly on {MAINLY[shared[0]](tb[shared[0]])}; the rest of their situations differed."
+    else:
+        one = f"{pname} in {y} matched {name}'s overall 5-year path, but none of these electricity traits fall in the same band."
+    end = peer["access"][-1]
+    reach = "nearly everyone" if end >= 99 else {"almost everyone": "almost everyone", "most people": "most people",
+                                                 "about two-thirds": "about two-thirds of its people", "about half": "about half of its people",
+                                                 "few": "only a few more of its people"}[access_band(end)]
+    how = ""
+    d = peer["detail"]
+    if peer.get("rural_gain") is not None and peer.get("urban_gain") is not None:
+        how = ", mostly by reaching rural areas" if d.get("from_villages") else ", mostly in cities"
+    two = f"Over the next 10 years, it brought power to {reach}{how}."
+    # One honest line on the most important trait that differs
+    diff = None
+    for k in ["trend", "access", "city", "clean"]:
+        if mb[k] and tb[k] and mb[k] != tb[k]:
+            if k == "trend":
+                verb = {"losing ground": "were losing ground", "stalled": "had stalled", "steadily expanding": "were steadily expanding"}
+                diff = f"Key difference: {pname}'s connections {verb[tb[k]]} then, while {name}'s {verb[mb[k]]}."
+            elif k == "access":
+                diff = f"Key difference: {pname} had power for {tb[k]}, while {name} had power for {mb[k]}."
+            elif k == "city":
+                diff = f"Key difference: {pname} {CITY_CLAUSE[tb[k]]}, while {name} {CITY_CLAUSE[mb[k]]}."
+            else:
+                diff = f"Key difference: {pname} got {tb[k]} of its electricity from clean sources, while {name} got {mb[k]}."
+            break
+    pct = lambda v: "no data" if v is None else f"{v:.2f}%" if 0 < v < 1 else f"{v:.0f}%"  # noqa: E731
+    trend = lambda v: "no data" if v is None else f"{v:+.1f} points"  # noqa: E731
+    rows = [{"label": "People with power", "me": pct(me["total"]), "them": pct(them["total"])},
+            {"label": "Rural power", "me": pct(me["rural"]), "them": pct(them["rural"])},
+            {"label": "City power", "me": pct(me["urban"]), "them": pct(them["urban"])},
+            {"label": "Clean electricity", "me": pct(me["clean"]), "them": pct(them["clean"])},
+            {"label": "5-year trend", "me": trend(me["trend"]), "them": trend(them["trend"])}]
+    return {"story": f"{one} {two}", "rows": rows, "difference": diff, "me": f"{name} ({snap})", "them": f"{pname} ({y})",
+            "shared": shared}
 
 
 @app.get("/api/peers/{iso3}/{peer}/web")
@@ -391,9 +458,9 @@ def peers(iso3: str):
     name = model.latest(iso3)["country"]
     for p in ps:
         p["lesson"] = lesson(iso3, p)
-        p["why_match"] = why_match(iso3, name, p)
-    top = (f"#1 match: {ps[0]['country']} from {ps[0]['year']}, then {ps[0]['access_change']:+.0f}% more people connected "
-           f"within 10 years. {ps[0]['why_match']}") if ps else None
+        p["match"] = match_story(iso3, name, p)
+        p["why_match"] = p["match"]["story"]
+    top = f"#1 match: {ps[0]['country']} ({ps[0]['year']}). {ps[0]['why_match']}" if ps else None
     playbook = None
     if ps:
         a = electric.params(iso3=iso3)

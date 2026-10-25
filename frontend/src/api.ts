@@ -108,6 +108,7 @@ export type Peer = {
   access_change: number
   lesson: string
   why_match: string
+  match: { story: string; rows: { label: string; me: string; them: string }[]; difference: string | null; me: string; them: string; shared: string[] }
   detail: {
     years: [number, number]
     series: { year: number; total: number | null; rural: number | null; urban: number | null; clean: number | null }[]
