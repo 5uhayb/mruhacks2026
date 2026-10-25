@@ -201,12 +201,10 @@ function App() {
       {world && (
         <div className="fade text-mute bg-space/70 pointer-events-none absolute top-[72px] left-5 z-10 space-y-1 rounded-md px-2.5 py-2 text-[0.72rem]">
           <div className="text-ink">Electricity access ({shownYear}{shownYear > lastMeasured ? ', forecast' : ''})</div>
-          <div className="flex gap-3">
-            {[...TIERS].reverse().map((t) => (
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+            {[...TIERS].sort((a, b) => a.min - b.min).map((t) => (
               <span key={t.label}><span style={{ color: t.hex }}>●</span> {t.min === 0 ? 'Under 60%' : t.min === 60 ? '60–90%' : 'Over 90%'}</span>
             ))}
-          </div>
-          <div className="flex gap-3">
             <span><span style={{ color: NO_DATA }}>●</span> No data</span>
           </div>
         </div>
