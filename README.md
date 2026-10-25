@@ -1,20 +1,20 @@
-# Nahda (نهضة) — Electrification planner
+# Nahda (نهضة) — Reviving the world's power grids
 
 **MRUHacks 2026 · Theme: Revitalize**
 
-Match under-connected countries with peers that closed their electricity gap. Nahda helps countries below 90% electricity access plan how to close it: it finds historical peers that succeeded and recommends a solar / wind / grid & storage mix from each country's real sun and wind data.
+Millions still live without reliable power. See how countries that fixed it did it, and plan the comeback. Nahda helps countries below 90% electricity access plan how to close it: it finds historical peers that succeeded and recommends a solar / wind / grid & storage mix from each country's real sun and wind data.
 
 **Start:** double-click `start.bat` (opens http://localhost:5173). To share a public link, double-click `share.bat`.
 
 ## The workspace
 
-The globe colors every country by electricity access (red below 60% critical, amber 60–90% struggling, slate 90%+ connected, grey no data), with the data year in the legend. Quick-pick chips under the search show the 5 countries below 90% access with the best data coverage, chosen automatically. Flags are bundled SVGs (flag-icons), so they work offline on Windows.
+The globe colors every country by electricity access (red below 60% critical, amber 60–90% struggling, slate 90%+ connected, grey no data), with the data year in the legend. Quick-pick chips feature Libya, Nigeria and Kenya (then Botswana and Côte d'Ivoire). Each country has one snapshot year (the latest with total, urban and rural access and clean share all measured); every baseline uses it, and newer figures appear only as small notes. Flags are bundled SVGs (flag-icons), so they work offline on Windows.
 
 | Tab | What it shows |
 |---|---|
 | Profile | Electricity access (total, urban, rural), clean share, best solar (NASA POWER `ALLSKY_SFC_SW_DWN`) and best 50 m wind (`WS50M`) with site names, "High solar potential" / "Promising wind" badges, and the yearly budget (1% of GDP + 10% of resource income, both editable) |
-| Peers | Countries that started within ±15 points of this country's access (below 95%) and then gained ≥10 points or reached 95% in 10 years, matched by DTW on electricity features. Each in 3 lines; "Use [Peer]'s playbook →" sets the mix |
-| Plan | Recommendation banner, solar / wind / grid & storage split, four result cards (solar MW, wind MW and turbines, km of lines and MWh of storage, access and clean share in 10 years) |
+| Peers | Ranked by similarity and 10-year gain; click one for its 10-year chart, 3 data bullets, an honest clean-power trade-off and a lesson. Countries that started within ±15 points of this country's access (below 95%) and then gained ≥10 points or reached 95% in 10 years, matched by DTW on electricity features. Each in 3 lines; "Use [Peer]'s playbook →" sets the mix |
+| Plan | Risk-adjusted portfolio: solar, wind, grid & storage, and a reserve fund; a 3-sentence recommendation from the country's data; guardrails (solar or wind ≤ 40%, lines ≥ 25% and storage ≥ 10% when solar + wind exceed 30%, reserve 10–15%) with warnings; phased 10-year spending |
 | Stress | 500 budget futures from the country's own GDP and resource-income history, plus "Budget cut 30%", "Costs run over budget +25%", "Construction delay 2 years" |
 | Model | The supervised impact model (LightGBM + SHAP) for "if nothing changes", with honest out-of-sample accuracy |
 
