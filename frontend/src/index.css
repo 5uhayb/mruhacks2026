@@ -14,10 +14,10 @@
   --color-down: #ef5350;
 }
 
-html, body, #root { height: 100%; }
+html, body, #root { height: 100%; background-color: #070A12; color: #F8FAFC; }  /* never flashes white */
 html {
   font-size: 15px;
-  background: var(--color-space);
+  background: #070A12;
   color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
@@ -97,6 +97,9 @@ input[type="text"]:focus, input[type="number"]:focus { border-color: var(--color
   border: 1.5px solid #f2a93b;
   animation: pulse 1.8s ease-out infinite;
 }
+.wind-marker { color: #5ec8e5; }
+.wind-marker .pulse, .wind-marker .pulse::after { background: #5ec8e5; border-color: #5ec8e5; }
+.wind-marker .pulse::after { background: transparent; }
 @keyframes pulse { from { transform: scale(0.6); opacity: 0.9; } to { transform: scale(1.8); opacity: 0; } }
 
 /* Printing prints only the brief, on white */
@@ -119,3 +122,6 @@ input[type="text"]:focus, input[type="number"]:focus { border-color: var(--color
   color: #e8ecf3;
   line-height: 1.35;
 }
+
+/* Country flags (flag-icons): small, rounded, aligned with text */
+.flag { width: 1.33em !important; height: 1em; border-radius: 2px; vertical-align: -0.1em; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08); flex: none; }

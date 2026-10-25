@@ -1,14 +1,11 @@
-import { geoInterpolate } from 'd3-geo'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import GlobeGL, { type GlobeMethods } from 'react-globe.gl'
 import { MeshPhongMaterial } from 'three'
-import type { Twins, WorldCountry } from '../api'
-import { NO_DATA, accessColor, centroidOf, isoOf, planColor, projectedColor, useSize, type CountryFeature } from './ui'
+import type { WorldCountry } from '../api'
+import { NO_DATA, accessColor, centroidOf, flagClass, isoOf, planColor, projectedColor, useSize, type CountryFeature } from './ui'
 
-export type PlanOverlay = {
-  sites: { site: string; lat: number; lon: number; mw: number }[]
-  rail: { coords: [number, number][] | null; fraction: number }
-}
+export type PlanOverlay = { markers: { kind: 'solar' | 'wind'; lat: number; lon: number; text: string }[] }
+export type PeerArcs = { peers: { iso3: string; country: string; year: number; similarity: number }[] }
 
 export type GlobeState = {
   year: number
@@ -16,10 +13,10 @@ export type GlobeState = {
   selected: string | null
   /** Selected country's projected access by calendar year, with the user's plan (null = no plan / baseline) */
   planPath: Record<number, number> | null
-  /** Solar sites and rail corridor, shown on the Plan tab only */
+  /** Best solar and wind sites, shown on the Plan tab only */
   overlay: PlanOverlay | null
-  /** Historical twins, shown on the Twins tab only */
-  twins: Twins | null
+  /** Peers, shown on the Peers tab only */
+  twins: PeerArcs | null
 }
 
 /** Access in a given year: measured value (carried forward), or the model's projection after the last measured year */
@@ -32,8 +29,7 @@ export function accessIn(c: WorldCountry | undefined, year: number, lastMeasured
 }
 
 type Arc = { startLat: number; startLng: number; endLat: number; endLng: number }
-type Marker = { kind: 'twin' | 'solar'; lat: number; lng: number; text: string; stack: number }
-type RailPath = { points: [number, number][]; color: string; dash: number; gap: number }
+type Marker = { kind: 'twin' | 'solar' | 'wind'; lat: number; lng: number; text: string; stack: number }
 
 /** Labels closer than ~7° stack upward so neighbours (e.g. Iraq and Kuwait) never overlap */
 function stack<T extends { lat: number; lng: number }>(items: T[]): (T & { stack: number })[] {
@@ -43,15 +39,6 @@ function stack<T extends { lat: number; lng: number }>(items: T[]): (T & { stack
     out.push({ ...it, stack: near.length })
   }
   return out
-}
-
-function routePoints(coords: [number, number][], fraction: number): [number, number][] {
-  const [[lat1, lng1], [lat2, lng2]] = coords
-  const interp = geoInterpolate([lng1, lat1], [lng2, lat2])
-  return Array.from({ length: 41 }, (_, i) => {
-    const [lng, lat] = interp((i / 40) * fraction)
-    return [lat, lng] as [number, number]
-  })
 }
 
 export default function Globe({ features, countries, state, onSelect, panelFraction }: {
@@ -102,15 +89,14 @@ export default function Globe({ features, countries, state, onSelect, panelFract
     return a.projected ? projectedColor(a.value) : accessColor(a.value)
   }
 
-  const { arcs, markers, paths } = useMemo(() => {
+  const { arcs, markers } = useMemo(() => {
     const arcs: Arc[] = []
     let markers: Marker[] = []
-    const paths: RailPath[] = []
     const from = state.selected ? byIso.get(state.selected) : null
     if (state.twins && from) {
       const s = centroidOf(from)
       const twinMarkers: Omit<Marker, 'stack'>[] = []
-      for (const tw of state.twins.twins) {
+      for (const tw of state.twins.peers) {
         const f = byIso.get(tw.iso3)
         if (!f) continue
         const e = centroidOf(f)
@@ -120,15 +106,9 @@ export default function Globe({ features, countries, state, onSelect, panelFract
       markers = stack(twinMarkers)
     }
     if (state.overlay) {
-      const built = state.overlay.sites.filter((x) => x.mw > 0).slice(0, 3)
-      markers = stack(built.map((x) => ({ kind: 'solar' as const, lat: x.lat, lng: x.lon, text: `${x.site} · ${Math.round(x.mw).toLocaleString('en-US')} MW` })))
-      const r = state.overlay.rail
-      if (r.coords) {
-        paths.push({ points: routePoints(r.coords, 1), color: 'rgba(138,148,168,0.8)', dash: 0.02, gap: 0.015 })
-        if (r.fraction > 0.005) paths.push({ points: routePoints(r.coords, Math.min(1, r.fraction)), color: '#f2a93b', dash: 1, gap: 0 })
-      }
+      markers = stack(state.overlay.markers.map((x) => ({ kind: x.kind, lat: x.lat, lng: x.lon, text: x.text })))
     }
-    return { arcs, markers, paths }
+    return { arcs, markers }
   }, [state.twins, state.overlay, state.selected, byIso])
 
   return (
@@ -155,9 +135,11 @@ export default function Globe({ features, countries, state, onSelect, panelFract
           }}
           polygonsTransitionDuration={350}
           polygonLabel={(f) => {
-            const c = countries.get(isoOf(f as CountryFeature))
+            const iso = isoOf(f as CountryFeature)
+            const c = countries.get(iso)
             const name = c?.name ?? (f as CountryFeature).properties.NAME
-            return `<div class="globe-tip"><div style="font-weight:600">${name}</div>${c?.hover ? `<div style="color:#8a94a8;margin-top:3px">${c.hover}</div>` : ''}</div>`
+            const flag = flagClass(iso)
+            return `<div class="globe-tip"><div style="font-weight:600">${flag ? `<span class="${flag} flag"></span> ` : ''}${name}</div>${c?.hover ? `<div style="color:#8a94a8;margin-top:3px">${c.hover}</div>` : ''}</div>`
           }}
           onPolygonHover={(f) => setHover(f ? isoOf(f as CountryFeature) : null)}
           onPolygonClick={(f) => {
@@ -174,33 +156,26 @@ export default function Globe({ features, countries, state, onSelect, panelFract
           arcDashInitialGap={1}
           arcDashAnimateTime={2200}
           arcsTransitionDuration={600}
-          pathsData={paths}
-          pathPoints="points"
-          pathPointLat={(p) => (p as [number, number])[0]}
-          pathPointLng={(p) => (p as [number, number])[1]}
-          pathPointAlt={0.04}
-          pathColor={(p: object) => (p as RailPath).color}
-          pathStroke={2}
-          pathDashLength={(p: object) => (p as RailPath).dash}
-          pathDashGap={(p: object) => (p as RailPath).gap}
-          pathTransitionDuration={500}
           htmlElementsData={markers}
           htmlLat="lat"
           htmlLng="lng"
           htmlAltitude={0.04}
           htmlElement={(d) => {
             // Plain DOM labels: far lighter than 3D text, and crisp at any zoom
+            // The globe positions the outer element with an inline transform, so the stacking offset goes on an inner one
             const m = d as Marker
+            const outer = document.createElement('div')
             const el = document.createElement('div')
-            el.className = m.kind === 'twin' ? 'twin-label' : 'solar-marker'
+            outer.appendChild(el)
+            el.className = m.kind === 'twin' ? 'twin-label' : m.kind === 'wind' ? 'solar-marker wind-marker' : 'solar-marker'
             el.style.setProperty('--stack', String(m.stack))
-            if (m.kind === 'solar') {
+            if (m.kind !== 'twin') {
               const dot = document.createElement('span')
               dot.className = 'pulse'
               el.appendChild(dot)
             }
             el.appendChild(document.createTextNode(m.text))
-            return el
+            return outer
           }}
         />
       )}

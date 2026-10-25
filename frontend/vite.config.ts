@@ -11,4 +11,12 @@ export default defineConfig({
       '/api': 'http://localhost:8000',
     },
   },
+  // `npm run share`: the built app, reachable through a Cloudflare tunnel (*.trycloudflare.com)
+  preview: {
+    port: 4173,
+    allowedHosts: ['.trycloudflare.com'],
+    proxy: {
+      '/api': 'http://localhost:8000',
+    },
+  },
 })

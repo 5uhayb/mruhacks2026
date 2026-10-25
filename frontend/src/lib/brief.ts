@@ -1,19 +1,17 @@
-import type { AssumptionSpec, Country, Simulation, Split, Twins } from '../api'
+import type { AssumptionSpec, Country, Peers, Simulation } from '../api'
 import { formatCompact, formatInt, formatMoney, formatNumber, formatPct } from './format'
 
 export const LIMITATIONS = [
-  'Assumes new power can reach homes through the grid; transmission and connection upgrades are not modelled.',
-  'Storage for solar beyond daytime demand is not costed.',
-  'Rail: only the cost is modelled, not the benefits.',
-  'Governance: the money has to reach the projects; weak institutions raise costs and delays.',
-  'Fuel subsidies: burning less oil and gas at home may mean subsidy changes that affect household bills.',
+  'Assumes new lines connect homes; local grid studies are needed.',
+  'Solar and wind are variable, not baseload; storage and the grid cover gaps. Seasonal storage is not modelled.',
+  'Wind speeds are NASA 50 m point averages; turbine sites need detailed local studies.',
+  'Costs, capacity factors and connections per km are editable estimates.',
   'The impact model cannot predict declines in electricity access.',
 ]
 
 function assumptionValue(s: AssumptionSpec, v: number): string {
   if (s.unit.startsWith('$')) return `${formatMoney(v)} ${s.unit.slice(1)}`.trim()
-  if (s.unit === 'rate' || s.unit === 'rate/pt' || s.unit === '/yr') return formatPct(v * 100)
-  if (s.unit === 'ratio') return formatPct(v * 100, 0)
+  if (s.unit === 'rate' || s.unit === 'ratio') return formatPct(v * 100)
   return `${formatNumber(v, v % 1 ? 2 : 0)} ${s.unit}`
 }
 
@@ -21,64 +19,45 @@ function assumptionValue(s: AssumptionSpec, v: number): string {
 export function buildBrief(args: {
   country: Country
   sim: Simulation
-  twins: Twins | null
-  split: Split
+  peers: Peers | null
   specs: Record<string, AssumptionSpec>
   overrides: Record<string, number>
   date?: Date
 }): string {
-  const { country: c, sim, twins, specs, overrides } = args
-  const y = sim.years[sim.years.length - 1]
-  const startYear = sim.start.access_year ?? new Date().getFullYear()
-  const endYear = startYear + 10
-  const total = args.split.solar + args.split.rail + args.split.fund || 1
-  const pct = (k: keyof Split) => formatPct((args.split[k] / total) * 100, 0)
-  const r = c.revenue
-  const h = sim.homes
-  const homes = h.every_home
-    ? `enough to cover the electricity use of every home (about ${formatCompact(h.households)} households), with ${formatPct(h.left_over_share * 100, 0)} left over for business and industry`
-    : `${formatPct(h.coverage * 100, 0)} of the country's ${formatCompact(h.households)} households`
-  const rail = sim.rail.from
-    ? `${formatInt(sim.rail.funded_km)} of ${formatInt(sim.rail.route_km)} km, ${sim.rail.from} → ${sim.rail.to}`
-    : `${formatInt(sim.rail.funded_km)} km of new intercity rail`
-  const twinEnd = twins?.forecast[twins.forecast.length - 1]
-  const shockLines = Object.values(sim.shocks).map(
-    (s) => `- **${s.label}:** savings ${formatMoney(s.before.fund)} → ${formatMoney(s.after.fund)}, solar ${formatCompact(s.before.solar_mw, 'MW')} → ${formatCompact(s.after.solar_mw, 'MW')}, access ${formatPct(s.before.access_pct)} → ${formatPct(s.after.access_pct)}.`,
-  )
+  const { country: c, sim, peers, specs, overrides } = args
+  const p = c.profile
+  const cd = sim.cards
+  const start = sim.start.access_year ?? new Date().getFullYear()
+  const b = sim.budget
   const assumptionLines = Object.entries(specs).map(([k, s]) => {
     const v = overrides[k] ?? (k === 'household_size' ? sim.household_size : s.value)
     return `- ${s.label}: ${assumptionValue(s, v)}${k in overrides ? ' (edited)' : ''}`
   })
-
   return [
-    `# ${c.name}: Nahda plan brief`,
-    `${c.classification.label}. Generated ${(args.date ?? new Date()).toISOString().slice(0, 10)}. Real data from the World Bank and NASA POWER (each value with its latest available year); everything under "Results" and "Stress test" is a model estimate.`,
+    `# ${c.name}: electrification brief`,
+    `${c.tier}. Generated ${(args.date ?? new Date()).toISOString().slice(0, 10)}. Data from the World Bank and NASA POWER (each value with its year); everything under "Plan" and "Stress test" is a model estimate.`,
     '',
     '## Where it stands',
-    `- Electricity access: ${formatPct(sim.start.access)} (latest available, ${sim.start.access_year}).`,
-    `- Clean electricity: ${formatPct(sim.start.clean)} of all electricity (latest available, ${sim.start.clean_year}).`,
-    r.avg != null && r.years
-      ? `- ${c.resource[0].toUpperCase() + c.resource.slice(1)} income: ${formatMoney(r.avg)} a year, 5-year average (${r.years[0]}–${r.years[r.years.length - 1]}).`
-      : '- Resource income: no data.',
+    `- Electricity access: ${formatPct(p.access.value)} (${p.access.year}); urban ${formatPct(p.urban.value, 0)} (${p.urban.year ?? 'no data'}), rural ${formatPct(p.rural.value, 0)} (${p.rural.year ?? 'no data'}).`,
+    `- Clean electricity: ${formatPct(p.clean.value)} (${p.clean.year}).`,
+    p.resources.solar ? `- Best solar: ${formatNumber(p.resources.solar.value, 2)} kWh/m²/day at ${p.resources.solar.site}; best wind (50 m): ${formatNumber(p.resources.wind?.value, 2)} m/s at ${p.resources.wind?.site}.` : '',
+    `- Budget (estimate): ${formatMoney(b.total, 2)} a year = ${formatPct(b.gdp.share * 100)} of GDP (${formatMoney(b.gdp.amount, 2)})${b.resource.amount ? ` + ${formatPct(b.resource.share * 100, 0)} of ${b.resource.word} income (${formatMoney(b.resource.amount, 2)})` : ''}.`,
     '',
-    '## Plan settings',
-    `- Invest ${formatPct(sim.share * 100, 0)} of ${c.resource} income: ${formatMoney(sim.pool, 2)} a year.`,
-    `- Split: solar ${pct('solar')} (${formatMoney(sim.split_amounts.solar, 2)}), rail ${pct('rail')} (${formatMoney(sim.split_amounts.rail, 2)}), savings ${pct('fund')} (${formatMoney(sim.split_amounts.fund, 2)}) a year.`,
-    sim.low_resource.is_low ? `- Resource income is a small share of this economy (${formatPct(sim.low_resource.rents_pct_gdp)} of GDP), so this plan has limited impact here.` : '',
+    '## Peers that closed the gap',
+    ...(peers?.peers.length ? peers.peers.map((x) => `- **${x.country} ${x.year}** (${Math.round(x.similarity)}% match): ${x.changed} ${x.result}.`) : ['- No peer meets the selection rule.']),
     '',
-    `## Results by ${endYear} (estimates)`,
-    `- Solar built: ${formatCompact(y.solar_mw, 'MW')}; ${homes}.`,
-    `- Electricity access: ${formatPct(y.access_pct)}. Clean electricity: ${formatPct(y.renewable_pct)}.`,
-    `- Rail: ${rail}.`,
-    `- Savings fund: ${formatMoney(y.fund)}, about ${formatNumber(sim.months_covered, 1)} months of ${c.resource} income.`,
-    '',
-    '## If nothing changes',
-    twinEnd ? `- Historical twins suggest ${formatPct(twinEnd.access)} electricity access by ${twinEnd.year}.` : '',
-    c.outlook ? `- Impact model predicts ${formatPct(c.outlook.access_in_10)} by ${c.outlook.year + 10}.` : '',
+    `## Plan by ${start + 10} (estimates)`,
+    ...sim.recommendation.banner.map((x) => `- ${x}`),
+    `- Mix used: solar ${formatPct(sim.split.solar, 0)}, wind ${formatPct(sim.split.wind, 0)}, grid & storage ${formatPct(sim.split.grid, 0)}, reserve ${formatPct(sim.split.reserve, 0)}.`,
+    ...sim.guardrails.map((g) => `- Warning: ${g}`),
+    `- Solar added: ${formatCompact(cd.solar.mw, 'MW')}, ${formatMoney(cd.solar.capex)}, payback ${cd.solar.payback != null ? `${formatNumber(cd.solar.payback, 1)} years` : 'n/a'}.`,
+    `- Wind added: ${formatCompact(cd.wind.mw, 'MW')} (~${formatInt(cd.wind.turbines)} turbines), ${formatMoney(cd.wind.capex)}.`,
+    `- Grid & storage: ${formatCompact(cd.grid.km, 'km')} of lines, ${formatCompact(cd.grid.storage_mwh, 'MWh')} of storage, ${formatMoney(cd.grid.capex)}.`,
+    `- Electricity access: ${formatPct(cd.access.value)}; clean share ${formatPct(cd.access.clean)}.`,
     '',
     '## Stress test',
-    ...shockLines,
-    `- ${sim.futures.runs} futures from ${sim.futures.history_years} ${sim.futures.resource} income history: at least 90% of planned spending happens in ${formatPct(sim.futures.p_funded * 100, 0)} of futures; in 9 of 10, electricity access reaches ${formatPct(sim.futures.access_p10)}.`,
+    ...Object.values(sim.shocks).map((s) => `- **${s.label}:** access ${formatPct(s.before.access_pct)} → ${formatPct(s.after.access_pct)}.`),
+    `- ${sim.futures.runs} budget futures: in 9 of 10, access reaches ${formatPct(sim.futures.access_p10)}.`,
     '',
     '## Key assumptions',
     ...assumptionLines,

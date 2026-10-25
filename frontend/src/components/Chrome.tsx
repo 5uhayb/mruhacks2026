@@ -1,16 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { WorldCountry } from '../api'
+import type { QuickPick, WorldCountry } from '../api'
 import { formatPct } from '../lib/format'
 import { useLog } from '../log'
+import { Flag } from './ui'
 
-/** Top bar: wordmark and country search. Cmd/Ctrl+K focuses it, Enter flies to the first match.
- *  Revitalization targets (chosen by a data rule) are listed first, then all countries. */
-export function CommandBar({ countries, targetRule, onSelect, systemOpen, onToggleSystem }: {
+const latestAccess = (c: WorldCountry) => {
+  const years = Object.keys(c.access).map(Number)
+  return years.length ? c.access[Math.max(...years)] : null
+}
+
+/** Top bar: wordmark, country search and quick picks. Cmd/Ctrl+K focuses search, Enter flies to the first match.
+ *  Countries below 90% access are listed first, then all countries. */
+export function CommandBar({ countries, quickPicks, quickPickRule, onSelect }: {
   countries: WorldCountry[]
-  targetRule: string
+  quickPicks: QuickPick[]
+  quickPickRule: string
   onSelect: (iso3: string) => void
-  systemOpen: boolean
-  onToggleSystem: () => void
 }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
@@ -34,13 +39,14 @@ export function CommandBar({ countries, targetRule, onSelect, systemOpen, onTogg
     const hit = (c: WorldCountry) => !q || c.name.toLowerCase().includes(q) || c.iso3.toLowerCase() === q
     const order = (a: WorldCountry, b: WorldCountry) =>
       Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)) || a.name.localeCompare(b.name)
-    const targets = countries.filter((c) => c.target.length && hit(c)).sort(order)
-    const rest = countries.filter((c) => !c.target.length && hit(c)).sort(order)
+    const under = (c: WorldCountry) => (latestAccess(c) ?? 100) < 90
+    const targets = countries.filter((c) => under(c) && hit(c)).sort(order)
+    const rest = countries.filter((c) => !under(c) && hit(c)).sort(order)
     return [
-      { name: 'Revitalization targets', items: q ? targets.slice(0, 6) : targets, title: targetRule },
+      { name: 'Below 90% access', items: q ? targets.slice(0, 6) : targets, title: 'Latest World Bank electricity access below 90%.' },
       { name: 'All countries', items: q ? rest.slice(0, 6) : rest, title: undefined },
     ].filter((g) => g.items.length)
-  }, [query, countries, targetRule])
+  }, [query, countries])
   const flat = groups.flatMap((g) => g.items)
 
   function choose(iso3: string) {
@@ -51,12 +57,16 @@ export function CommandBar({ countries, targetRule, onSelect, systemOpen, onTogg
   }
 
   return (
-    <div className="pointer-events-none absolute top-0 right-0 left-0 z-20 flex items-center gap-4 px-5 py-4">
-      <div className="pointer-events-auto flex items-baseline gap-2">
-        <span className="text-[1.15rem] font-semibold tracking-tight">Nahda</span>
-        <span className="text-mute text-[1rem]" lang="ar">نهضة</span>
+    <div className="pointer-events-none absolute top-0 right-0 left-0 z-20 flex items-start gap-4 px-5 py-4">
+      <div className="pointer-events-auto">
+        <div className="flex items-baseline gap-2">
+          <span className="text-[1.15rem] font-semibold tracking-tight">Nahda</span>
+          <span className="text-mute text-[1rem]" lang="ar">نهضة</span>
+          <span className="text-mute text-[0.95rem]">— Reviving the world's power grids</span>
+        </div>
       </div>
-      <div className="pointer-events-auto relative w-[360px]">
+      <div className="pointer-events-auto relative w-[420px]">
+        <div className="relative">
         <input
           ref={input}
           type="text"
@@ -79,6 +89,7 @@ export function CommandBar({ countries, targetRule, onSelect, systemOpen, onTogg
           aria-label="Search a country"
         />
         <kbd className="num text-faint border-edge pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border px-1.5 text-[0.7rem]">Ctrl K</kbd>
+        </div>
         {open && flat.length > 0 && (
           <div className="bg-panel border-edge scroll-thin absolute top-full right-0 left-0 mt-1 max-h-[60vh] overflow-y-auto rounded-md border">
             {groups.map((g) => (
@@ -94,10 +105,10 @@ export function CommandBar({ countries, targetRule, onSelect, systemOpen, onTogg
                       key={c.iso3}
                       onMouseDown={() => choose(c.iso3)}
                       onMouseEnter={() => setActive(i)}
-                      title={c.target.length ? c.target.join(' · ') : undefined}
+                      title={c.hover}
                       className={`flex w-full items-baseline justify-between gap-3 px-3 py-1.5 text-left text-[0.86rem] ${i === active ? 'bg-edge' : ''}`}
                     >
-                      <span>{c.name}{c.target.length > 0 && <span className="text-faint ml-2 text-[0.72rem]">{c.target.slice(1).join(' · ')}</span>}</span>
+                      <span className="flex items-baseline gap-2"><Flag iso3={c.iso3} /><span>{c.name}{latestAccess(c) != null && <span className="text-faint ml-2 text-[0.72rem]">{formatPct(latestAccess(c))}</span>}</span></span>
                       <span className="num text-faint text-[0.72rem]">{c.iso3}</span>
                     </button>
                   )
@@ -106,10 +117,17 @@ export function CommandBar({ countries, targetRule, onSelect, systemOpen, onTogg
             ))}
           </div>
         )}
+        {quickPicks.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label="Quick picks">
+            {quickPicks.map((p) => (
+              <button key={p.iso3} onClick={() => onSelect(p.iso3)} title={quickPickRule}
+                className="bg-panel/90 border-edge hover:border-mute flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.76rem]">
+                <Flag iso3={p.iso3} />{p.name}<span className="num text-mute">{formatPct(p.access, 0)}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
-      <button onClick={onToggleSystem} className={`pointer-events-auto ml-auto text-[0.8rem] ${systemOpen ? 'text-ink' : 'text-mute hover:text-ink'}`}>
-        <kbd className="num border-edge mr-1.5 rounded border px-1.5 text-[0.7rem]">`</kbd>System
-      </button>
     </div>
   )
 }
@@ -121,8 +139,8 @@ export function TimeScrubber({ years, year, lastMeasured, setYear, rightInset, p
   lastMeasured: number
   setYear: (y: number) => void
   rightInset: number
-  /** The selected country's plan, if any: its projected access for this year and the with/without toggle */
-  plan: { country: string; value: number | null; usePlan: boolean; setUsePlan: (v: boolean) => void } | null
+  /** The selected country's plan, if any: its projected access for this year under the active plan */
+  plan: { country: string; value: number | null } | null
 }) {
   const [playing, setPlaying] = useState(false)
   const first = years[0]
@@ -151,26 +169,16 @@ export function TimeScrubber({ years, year, lastMeasured, setYear, rightInset, p
         <input className="scrub relative" type="range" min={first} max={last} step={1} value={year} onChange={(e) => setYear(Number(e.target.value))} aria-label="Year" />
         <div className="num text-faint relative h-4 text-[0.7rem]">
           <span className="absolute left-0">{first}</span>
-          <span className="absolute -translate-x-1/2" style={{ left: `${todayPct}%` }}>{lastMeasured} · latest data</span>
-          <span className="text-gold/70 absolute right-0">{last} projected</span>
+          <span className="absolute -translate-x-1/2" style={{ left: `${todayPct}%` }} title="Latest measured year">{lastMeasured}</span>
+          <span className="text-gold/70 absolute right-0" title="Projected">{last}</span>
         </div>
       </div>
-      {plan && (
-        <div className="border-edge bg-panel flex shrink-0 overflow-hidden rounded-md border text-[0.72rem]" role="group" aria-label="Projection">
-          {[true, false].map((v) => (
-            <button key={String(v)} onClick={() => plan.setUsePlan(v)}
-              className={`px-2.5 py-1.5 ${plan.usePlan === v ? 'bg-edge text-ink' : 'text-mute hover:text-ink'}`}>
-              {v ? 'With plan' : 'Without plan'}
-            </button>
-          ))}
-        </div>
-      )}
       <div className="w-52 shrink-0 text-right">
         <div className={`num text-[1.6rem] leading-none ${projected ? 'text-gold' : ''}`}>{year}</div>
         <div className="text-mute mt-1 text-[0.72rem] leading-snug">
           {!projected
             ? 'Electricity access, measured'
-            : plan?.usePlan && plan.value != null
+            : plan?.value != null
               ? `Projected with your plan: ${plan.country} ${formatPct(plan.value)}`
               : 'Projected, no new plan (impact model)'}
         </div>

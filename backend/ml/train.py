@@ -50,7 +50,7 @@ def main():
     print("\nComeback Finder (DTW twins), sample countries")
     index = twins.TwinIndex.build(panel)
     print(f"  {len(index.windows)} searchable 5-year windows")
-    for iso3 in ["LBY", "NGA", "NOR", "CHL", "IDN"]:
+    for iso3 in sorted(set(index.iso3))[:5]:  # a sample: the first five countries alphabetically
         t = index.find(iso3)
         print(f"  {iso3}: " + ", ".join(f"{x['country']} {x['year']} ({x['similarity']:.0f}%)" for x in t["twins"]))
     print(f"\nSaved to {OUT} in {time.time() - start:.0f}s")

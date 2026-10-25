@@ -28,7 +28,7 @@ api.interceptors.response.use(
   },
 )
 
-export const SECTORS = ['solar', 'rail', 'fund'] as const
+export const SECTORS = ['solar', 'wind', 'grid', 'reserve'] as const
 export type Sector = (typeof SECTORS)[number]
 export type Split = Record<Sector, number>
 export type Point = { year: number; value: number }
@@ -36,14 +36,14 @@ export type Meta = { detail: string; server_ms: number }
 
 export type WorldCountry = {
   iso3: string
+  iso2: string | null
   name: string
   hover: string
-  resource: string
-  target: string[]
   access: Record<string, number>
   projected: Record<string, number>
 }
-export type World = { years: number[]; countries: WorldCountry[]; target_rule: string; meta: Meta }
+export type QuickPick = { iso3: string; iso2: string; name: string; access: number; year: number; coverage: number }
+export type World = { years: number[]; countries: WorldCountry[]; quick_picks: QuickPick[]; quick_pick_rule: string; meta: Meta }
 
 export type Fact = { text: string; kind: string; unit: string; value: number; year: number; percentile: number; sparkline: Point[] }
 export type Factor = { label: string; value: number | null; effect: number }
@@ -62,29 +62,22 @@ export type ModelCard = {
   first_year: number
   last_year: number
 }
+export type Dated = { value: number | null; year: number | null; latest?: { value: number; year: number } | null; last_measured?: number }
+export type Site = { site: string; lat: number; lon: number; solar: number; wind: number }
+export type BestSite = { value: number; site: string; lat: number; lon: number }
+export type Budget = {
+  gdp: { base: number; year: number | null; share: number; amount: number }
+  resource: { base: number; years: [number, number] | null; word: string; share: number; amount: number }
+  total: number
+}
 export type Country = {
   iso3: string
   name: string
-  resource: string
-  classification: { label: string; rules: string; rents_pct_gdp: number }
+  tier: string
   facts: Fact[]
-  stats: {
-    population: number
-    electricity_access_pct: number | null
-    electricity_access_pct_year: number | null
-    renewable_electricity_pct: number | null
-    renewable_electricity_pct_year: number | null
-    gdp_per_capita_usd: number | null
-  }
-  revenue: {
-    avg?: number
-    years?: number[]
-    per_person?: number
-    low?: { year: number; revenue: number }
-    high?: { year: number; revenue: number }
-    range_years?: [number, number]
-  }
-  sun: { site?: string; value?: number; oslo?: number }
+  profile: { year: number | null; rule: string; access: Dated; urban: Dated; rural: Dated; clean: Dated; resources: { solar: BestSite | null; wind: BestSite | null; sites: Site[] } }
+  badges: { label: string; rule: string }[]
+  budget: Budget
   outlook: {
     year: number
     access_now: number
@@ -101,92 +94,88 @@ export type Country = {
   meta: Meta
 }
 
-export type Twin = {
+export type Peer = {
   iso3: string
   country: string
   year: number
   similarity: number
-  population_then: number
-  access_then: number
   access: number[]
-  gdp_per_capita: number[]
+  urban_gain: number | null
+  rural_gain: number | null
+  clean_gain: number | null
+  changed: string
+  result: string
+  access_change: number
+  lesson: string
+  detail: {
+    years: [number, number]
+    series: { year: number; total: number | null; rural: number | null; urban: number | null; clean: number | null }[]
+    bullets: string[]
+    tradeoff: string | null
+  }
 }
-export type Twins = {
+export type Playbook = { peer: string; peer_name: string; peer_year: number; split: Split; line: string }
+export type Peers = {
   year: number
   access_now: number
-  gdp_now: number
-  population_now: number
-  twins: Twin[]
-  forecast: { year: number; access: number; access_low: number; access_high: number; gdp: number; gdp_low: number; gdp_high: number }[]
+  top: string | null
+  peers: Peer[]
+  rule: string
+  playbook: Playbook | null
+  playbook_rule: string
   windows_searched: number
   meta: Meta
 }
 
-export type YearRow = {
-  year: number
-  fund: number
-  solar_mw: number
-  homes: number
-  household_coverage: number
-  rail_km: number
-  renewable_pct: number
-  access_pct: number
-}
-export type ShockSide = YearRow & { shortfall_total: number; fully_funded: boolean }
+export type YearRow = { year: number; access_pct: number; clean_pct: number; solar_mw: number; wind_mw: number; line_km: number; storage_mwh: number }
+export type ShockSide = Omit<YearRow, 'year'>
 export type Simulation = {
-  share: number
-  base_revenue: number
-  pool: number
-  per_person: number
+  budget: Budget
+  split: Split
   split_amounts: Split
-  start: { access: number; clean: number; access_year: number | null; clean_year: number | null }
+  recommendation: { split: Split; banner: string[]; method: string; capped: { solar: boolean; wind: boolean }; solar: number; wind: number }
+  guardrails: string[]
+  current: string[]
+  phased: ({ year: number } & Split)[]
+  start: { access: number; access_year: number | null; clean: number; clean_year: number | null; urban: Dated; rural: Dated; snapshot: number | null }
   years: YearRow[]
-  months_covered: number
-  access_full_year: number | null
-  sites: { site: string; lat: number; lon: number; solar: number; mw: number }[]
-  homes: { households: number; home_kwh: number; coverage: number; homes_powered: number; every_home: boolean; left_over_share: number }
-  rail: {
-    from: string | null
-    to: string | null
-    route_km: number
-    coords: [number, number][] | null
-    funded_km: number
-    km_per_year: number
-    annual_pool: number
-    years_to_complete: number | null
+  cards: {
+    solar: { mw: number; capex: number; payback: number | null; mwh: number; site: BestSite }
+    wind: { mw: number; turbines: number; capex: number; payback: number | null; capacity_factor: number; mw_per_turbine: number; site: BestSite }
+    grid: { km: number; storage_mwh: number; capex: number; households: number; lines_pct: number; storage_pct: number }
+    reserve: { left: number; drawn: number }
+    access: { value: number; clean: number; people: number }
   }
-  low_resource: { is_low: boolean; rents_pct_gdp: number }
+  limit: 'lines' | 'generation'
+  sites: { solar: BestSite; wind: BestSite }
   household_size: number
-  shocks: Record<string, {
-    label: string
-    detail: string
-    before: ShockSide
-    after: ShockSide
-    note: string
-    path: { year: number; access_pct: number; renewable_pct: number }[]
-  }>
+  shocks: Record<string, { label: string; detail: string; before: ShockSide; after: ShockSide; note: string; path: { year: number; access_pct: number; clean_pct: number }[] }>
   futures: {
     runs: number
     history_years: string
-    resource: string
     access_paths: number[][]
     clean_paths: number[][]
     access_p10: number
     access_p50: number
     access_p90: number
     clean_p10: number
-    p_funded: number
+    budget_p10: number
+    budget_p90: number
   }
   meta: Meta
 }
-export type Optimized = { split: Split; p_funded: number; access_y10: number; feasible: boolean; plans_tested: number; min_funded: number; meta: Meta }
-export type AssumptionSpec = { value: number; min: number; max: number; unit: string; label: string; note: string }
+export type AssumptionSpec = { group: string; value: number; min: number; max: number; unit: string; label: string; note: string }
+export type SimulateInput = { iso3: string; split: Split | null; assumptions: Record<string, number> }
 
-export type SimulateInput = { iso3: string; share: number; split: Split; assumptions: Record<string, number> }
+export type AdvisorKind = 'mix' | 'peer' | 'siting' | 'first' | 'risk' | 'peer_web'
+export type AdvisorAnswer = { answer: string; sources: { title: string; url: string }[]; mode: 'web' | 'model' | 'offline' | 'greeting'; label: string; meta: Meta }
+export type AdvisorStatus = { key: boolean; last_mode: AdvisorAnswer['mode'] | null }
 
 export const getWorld = async () => (await api.get<World>('/world')).data
 export const getCountry = async (iso3: string) => (await api.get<Country>(`/country/${iso3}`)).data
-export const getTwins = async (iso3: string) => (await api.get<Twins>(`/twins/${iso3}`)).data
+export const getPeers = async (iso3: string) => (await api.get<Peers>(`/peers/${iso3}`)).data
 export const simulate = async (input: SimulateInput) => (await api.post<Simulation>('/simulate', input)).data
-export const optimize = async (input: SimulateInput) => (await api.post<Optimized>('/optimize', input)).data
 export const getAssumptions = async () => (await api.get<Record<string, AssumptionSpec>>('/assumptions')).data
+export const getAdvisorStatus = async () => (await api.get<AdvisorStatus>('/advisor/status')).data
+export const askAdvisor = async (input: Omit<SimulateInput, 'iso3'> & { iso3: string | null; question: string; kind: AdvisorKind | null }) =>
+  (await api.post<AdvisorAnswer>('/advisor', input, { timeout: 45000 })).data

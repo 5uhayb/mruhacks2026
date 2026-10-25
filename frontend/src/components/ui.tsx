@@ -147,27 +147,81 @@ function ringArea(ring: number[][]): number {
   return a / 2
 }
 
+let webgl: boolean | null = null
+
+/** Checked once and cached: every check creates a WebGL context, and browsers allow only ~16 at a time,
+ *  so checking on every render would push out the globe's own context (blank globe, then a crashed tab). */
 export function hasWebGL(): boolean {
+  if (webgl != null) return webgl
   try {
     const c = document.createElement('canvas')
-    return !!(c.getContext('webgl2') || c.getContext('webgl'))
+    const gl = (c.getContext('webgl2') || c.getContext('webgl')) as WebGLRenderingContext | null
+    webgl = !!gl
+    gl?.getExtension('WEBGL_lose_context')?.loseContext()  // release the test context right away
   } catch {
-    return false
+    webgl = false
   }
+  return webgl
 }
 
 // ---------- Colors ----------
 
 const mix = (a: number[], b: number[], t: number) => a.map((v, i) => Math.round(v + (b[i] - v) * Math.max(0, Math.min(1, t))))
 const rgb = (c: number[], alpha = 1) => `rgba(${c[0]},${c[1]},${c[2]},${alpha})`
-const DARK = [20, 26, 40]
-const LIGHT = [112, 124, 148]
 const GOLD = [242, 169, 59]
 
-/** Measured electricity access: near-black (none) to slate grey (everyone), so gold and cyan stand out */
-export const accessColor = (access: number) => rgb(mix(DARK, LIGHT, Math.pow(access / 100, 1.5)))
-/** Projected years: same scale with a faint gold tint, so the future reads differently */
-export const projectedColor = (access: number) => rgb(mix(mix(DARK, LIGHT, Math.pow(access / 100, 1.5)), GOLD, 0.18))
+/** Electricity access tiers: the globe's only color scale */
+export const TIERS = [
+  { min: 90, label: 'Connected', range: '90%+', color: [91, 107, 133], hex: '#5B6B85' },
+  { min: 60, label: 'Struggling', range: '60–90%', color: [245, 158, 11], hex: '#F59E0B' },
+  { min: 0, label: 'Critical', range: 'Below 60%', color: [239, 68, 68], hex: '#EF4444' },
+] as const
+const tier = (access: number) => TIERS.find((t) => access >= t.min)!.color as unknown as number[]
+
+/** Measured electricity access, by tier */
+export const accessColor = (access: number) => rgb(tier(access))
+/** Projected years: same tiers with a faint gold tint, so the future reads differently */
+export const projectedColor = (access: number) => rgb(mix(tier(access), GOLD, 0.12))
 /** The selected country as the plan reshapes it */
-export const planColor = (access: number, strength: number) => rgb(mix(mix(DARK, LIGHT, Math.pow(access / 100, 1.5)), GOLD, 0.35 + 0.6 * strength))
-export const NO_DATA = 'rgba(16, 21, 31, 1)'
+export const planColor = (access: number, strength: number) => rgb(mix(tier(access), GOLD, 0.35 + 0.4 * strength))
+export const NO_DATA = '#2A303C'
+
+/** "How is this calculated?": the longer explanation lives in a hover tooltip (click toggles it for touch) */
+export function Info({ text, label = 'How is this calculated?' }: { text: string; label?: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <span className="relative inline-block">
+      <button type="button" title={text} onClick={() => setOpen(!open)} onBlur={() => setOpen(false)}
+        className="text-faint hover:text-ink cursor-help text-[0.72rem] underline decoration-dotted underline-offset-2">
+        {label}
+      </button>
+      {open && (
+        <span role="tooltip" className="bg-panel border-edge text-mute absolute top-full left-0 z-40 mt-1 block w-72 rounded-md border p-2.5 text-[0.75rem] leading-snug shadow-lg">
+          {text}
+        </span>
+      )}
+    </span>
+  )
+}
+
+// ---------- Flags (bundled SVGs from flag-icons, so they render offline and on Windows) ----------
+
+const iso2ByIso3 = new Map<string, string>()
+export function setFlagCodes(pairs: [string, string | null][]) {
+  for (const [iso3, iso2] of pairs) if (iso2) iso2ByIso3.set(iso3, iso2.toLowerCase())
+}
+export function flagClass(iso3: string): string | null {
+  const c = iso2ByIso3.get(iso3)
+  return c ? `fi fi-${c}` : null
+}
+export function Flag({ iso3, className = '' }: { iso3: string; className?: string }) {
+  const c = flagClass(iso3)
+  return c ? <span className={`${c} flag ${className}`} aria-hidden /> : null
+}
+
+/** y-axis that fits the data: from 10 below the lowest value to 5 above the highest, within 0–100 */
+export function fitDomain(values: number[]): [number, number] {
+  const lo = Math.max(0, Math.floor(Math.min(...values) - 10))
+  const hi = Math.min(100, Math.ceil(Math.max(...values) + 5))
+  return [lo, Math.max(hi, lo + 5)]
+}

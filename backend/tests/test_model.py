@@ -5,7 +5,6 @@ import pytest
 
 import model
 import signature
-from ml import optimize
 from ml.twins import TwinIndex, dtw_batch, load_panel
 
 
@@ -17,20 +16,13 @@ def twin_index():
 # ---------- Solar ----------
 
 def test_solar_output_matches_formula():
-    """Annual MWh = MW × sunlight (kWh/m²/day) × 365 × performance ratio."""
-    a = model.params()
-    f = model.solar_flows(a, solar_kwh=6.0, mw=500)
-    assert f["mwh"] == pytest.approx(500 * 6.0 * 365 * 0.8)
-    assert f["capex"] == pytest.approx(500 * 800_000)
-    assert len(f["flows"]) == 1 + int(a["project_life"])
+    """Yearly MWh = MW × sunlight (kWh/m²/day) × 365 × performance ratio."""
+    import electric
 
-
-def test_libya_solar_payback_is_plausible():
-    """Base-case payback at every Libyan site should land between 5 and 9 years."""
-    a = model.params()
-    for site in model.sites_for("LBY").site:
-        payback = model.deal("LBY", site, 500, a)["payback"]
-        assert 5 <= payback <= 9, site
+    a = electric.params()
+    ctx = {"population": 1e6, "access0": 50.0, "renew0": 0.0, "demand_mwh": 1e6, "solar": 6.0, "wind": 0.0}
+    r = electric.simulate(ctx, a, 1e9, {"solar": 100, "wind": 0, "grid": 0, "reserve": 0}, np.ones((1, electric.YEARS)))
+    assert r["solar_mwh"][0, -1] == pytest.approx(r["solar_mw"][0, -1] * 6.0 * 365 * a["performance_ratio"])
 
 
 # ---------- Finance ----------
@@ -49,9 +41,11 @@ def test_payback_interpolates_within_a_year():
 
 
 def test_assumption_overrides_are_clipped_to_range():
-    p = model.params({"solar_capex_per_mw": 1, "fuel_value": 999})
-    assert p["solar_capex_per_mw"] == model.ASSUMPTIONS["solar_capex_per_mw"]["min"]
-    assert p["fuel_value"] == model.ASSUMPTIONS["fuel_value"]["max"]
+    import electric
+
+    p = electric.params({"solar_capex_per_mw": 1, "wind_threshold": 999})
+    assert p["solar_capex_per_mw"] == electric.ASSUMPTIONS["solar_capex_per_mw"]["min"]
+    assert p["wind_threshold"] == electric.ASSUMPTIONS["wind_threshold"]["max"]
 
 
 # ---------- Twins ----------
@@ -92,24 +86,6 @@ def test_revenue_scenarios_shape_and_positive():
     assert (f > 0).all()
 
 
-def test_simulation_conserves_money():
-    """Money spent on projects plus what is in the fund never exceeds the money put in plus returns."""
-    a = model.params()
-    ctx = model.context("LBY", a)
-    r = model.simulate(ctx, a, 0.1, {"solar": 40, "rail": 30, "fund": 30}, 6.5, np.ones((1, model.YEARS)))
-    put_in = r["pool"].sum()
-    spent = r["solar_spend"].sum() + r["rail_spend"].sum()
-    assert spent + r["fund"][0, -1] <= put_in + r["fund_returns"].sum() + 1
-
-
-def test_optimizer_respects_funding_rule():
-    a = model.params()
-    ctx = model.context("NGA", a)
-    best = optimize.best_plan(ctx, a, 0.1, 6.0, model.revenue_scenarios("NGA", 300))
-    assert best["p_funded"] >= optimize.MIN_FUNDED
-    assert sum(best["split"].values()) == pytest.approx(100, abs=2)
-
-
 # ---------- Signature facts ----------
 
 def test_signatures_differ_between_countries():
@@ -123,21 +99,92 @@ def test_main_resource_detection():
     assert model.main_resource("CHL") == "minerals"
 
 
-def test_homes_powered_never_exceeds_households():
-    """Above 100% coverage the app must say 'every home' and cap the count at the number of households."""
-    import main
+# ---------- Electrification planner ----------
 
-    for iso3 in ["LBY", "NGA", "IRQ", "CAN", "NOR"]:
-        for share in [0.02, 0.1, 0.3]:
-            a = model.params(iso3=iso3)
-            ctx = model.context(iso3, a)
-            r = model.simulate(ctx, a, share, {"solar": 60, "rail": 20, "fund": 20},
-                               float(model.sites_for(iso3).iloc[0].solar_kwh_m2_day), np.ones((1, model.YEARS)))
-            y = model.rows(r)[-1]
-            h = main.homes_summary(ctx, y)
-            assert h["homes_powered"] <= h["households"] + 1e-6, iso3
-            assert h["every_home"] == (y["household_coverage"] >= 1), iso3
-            # Homes and clean share use the same generation and the same national demand
-            clean_added = y["renewable_pct"] - ctx["renew0"]
-            if y["renewable_pct"] < 100:
-                assert clean_added == pytest.approx(y["household_coverage"] * a["residential_share"] * 100, rel=1e-6), iso3
+def _plan(iso3):
+    import electric
+
+    a = electric.params(iso3=iso3)
+    b = electric.budget(iso3, a)
+    return electric, a, electric.context(iso3, a), b
+
+
+def test_recommendation_respects_guardrails_and_follows_resources():
+    import electric
+
+    for iso3 in ["LBY", "NGA", "KEN", "BWA", "CIV", "BEN"]:
+        _, a, ctx, b = _plan(iso3)
+        rec = electric.recommend(iso3, a, b["total"])
+        assert sum(rec["split"].values()) == 100
+        assert electric.guardrails(a, rec["split"]) == [], iso3
+        assert rec["split"]["solar"] <= a["single_source_cap"] * 100 and rec["split"]["wind"] <= a["single_source_cap"] * 100
+        if ctx["wind"] < 5.0:
+            assert rec["split"]["wind"] == 0, iso3
+        assert len(rec["banner"]) == 3 and not any("baseload" in x for x in rec["banner"])
+
+
+def test_riskier_wind_gets_less_budget():
+    import electric
+
+    bk = electric.budget("KEN", electric.params(iso3="KEN"))["total"]
+    safe = electric.recommend("KEN", electric.params({"wind_risk": 0.0}, "KEN"), bk)["split"]["wind"]
+    risky = electric.recommend("KEN", electric.params({"wind_risk": 1.0}, "KEN"), bk)["split"]["wind"]
+    assert risky < safe
+
+
+def test_guardrail_warnings_fire_outside_limits():
+    import electric
+
+    a = electric.params()
+    warnings = electric.guardrails(a, {"solar": 60, "wind": 10, "grid": 25, "reserve": 5})
+    assert len(warnings) == 4  # solar cap, lines floor, storage floor, reserve range
+
+
+def test_phased_spending_adds_up_and_reserve_fills_a_budget_cut():
+    electric, a, ctx, b = _plan("NGA")
+    split = electric.recommend("NGA", a, b["total"])["split"]
+    total = sum(sum(v for k, v in row.items() if k != "year") for row in electric.phased(b["total"], split))
+    assert total == pytest.approx(b["total"] * electric.YEARS)
+    cut = electric.simulate(ctx, a, b["total"], split, np.full((1, electric.YEARS), 0.9))
+    assert cut["reserve_drawn"][0, -1] > 0
+
+
+def test_access_is_capped_and_needs_both_lines_and_generation():
+    electric, a, ctx, b = _plan("NGA")
+    ones = np.ones((1, electric.YEARS))
+    full = electric.simulate(ctx, a, b["total"], {"solar": 30, "wind": 10, "grid": 48, "reserve": 12}, ones)
+    assert (full["access_pct"] <= 100).all() and (full["clean_pct"] <= 100).all()
+    no_grid = electric.simulate(ctx, a, b["total"], {"solar": 100, "wind": 0, "grid": 0, "reserve": 0}, ones)
+    assert no_grid["access_pct"][0, -1] == pytest.approx(ctx["access0"])  # generation without delivery connects no one
+    no_gen = electric.simulate(ctx, a, b["total"], {"solar": 0, "wind": 0, "grid": 100, "reserve": 0}, ones)
+    assert no_gen["access_pct"][0, -1] == pytest.approx(ctx["access0"])  # lines without power connect no one
+
+
+def test_shocks_never_improve_the_plan():
+    electric, a, ctx, b = _plan("BEN")
+    split = electric.recommend("BEN", a, b["total"])["split"]
+    base = electric.simulate(ctx, a, b["total"], split, np.ones((1, electric.YEARS)))["access_pct"][0, -1]
+    for name in electric.SHOCKS:
+        si = electric.shock_inputs(name)
+        after = electric.simulate(ctx, a, b["total"], split, si["factor"], si["capex_mult"], si["extra_delay"])["access_pct"][0, -1]
+        assert after <= base + 1e-9, name
+
+
+def test_budget_parts_add_up():
+    _, a, _, b = _plan("NGA")
+    assert b["total"] == pytest.approx(b["gdp"]["amount"] + b["resource"]["amount"])
+    assert b["gdp"]["amount"] == pytest.approx(b["gdp"]["base"] * a["budget_gdp_share"])
+
+
+def test_peers_meet_the_selection_rule():
+    from ml.twins import ELECTRIC_FEATURES, PEER_BAND, TwinIndex, load_panel
+
+    ix = TwinIndex.build(load_panel(), ELECTRIC_FEATURES)
+    for iso3 in ["NGA", "BEN", "CMR", "COD"]:
+        out = ix.find_peers(iso3)
+        for p in out["peers"]:
+            start, end = p["access"][0], p["access"][-1]
+            assert p["iso3"] != iso3
+            assert abs(start - out["access_now"]) <= PEER_BAND
+            assert start < 95
+            assert end - start >= 10 or end >= 95
