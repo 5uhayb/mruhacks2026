@@ -28,7 +28,7 @@ api.interceptors.response.use(
   },
 )
 
-export const SECTORS = ['solar', 'wind', 'grid', 'reserve'] as const
+export const SECTORS = ['solar', 'wind', 'grid', 'storage', 'reserve'] as const
 export type Sector = (typeof SECTORS)[number]
 export type Split = Record<Sector, number>
 export type Point = { year: number; value: number }

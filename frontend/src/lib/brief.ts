@@ -48,7 +48,7 @@ export function buildBrief(args: {
     '',
     `## Plan by ${start + 10} (estimates)`,
     ...sim.recommendation.banner.map((x) => `- ${x}`),
-    `- Mix used: solar ${formatPct(sim.split.solar, 0)}, wind ${formatPct(sim.split.wind, 0)}, grid & storage ${formatPct(sim.split.grid, 0)}, reserve ${formatPct(sim.split.reserve, 0)}.`,
+    `- Mix used: solar ${formatPct(sim.split.solar, 0)}, wind ${formatPct(sim.split.wind, 0)}, grid lines ${formatPct(sim.split.grid, 0)}, storage ${formatPct(sim.split.storage, 0)}, reserve ${formatPct(sim.split.reserve, 0)}.`,
     ...sim.guardrails.map((g) => `- Warning: ${g}`),
     `- Solar added: ${formatCompact(cd.solar.mw, 'MW')}, ${formatMoney(cd.solar.capex)}, payback ${cd.solar.payback != null ? `${formatNumber(cd.solar.payback, 1)} years` : 'n/a'}.`,
     `- Wind added: ${formatCompact(cd.wind.mw, 'MW')} (~${formatInt(cd.wind.turbines)} turbines), ${formatMoney(cd.wind.capex)}.`,

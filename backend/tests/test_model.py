@@ -21,7 +21,7 @@ def test_solar_output_matches_formula():
 
     a = electric.params()
     ctx = {"population": 1e6, "access0": 50.0, "renew0": 0.0, "demand_mwh": 1e6, "solar": 6.0, "wind": 0.0}
-    r = electric.simulate(ctx, a, 1e9, {"solar": 100, "wind": 0, "grid": 0, "reserve": 0}, np.ones((1, electric.YEARS)))
+    r = electric.simulate(ctx, a, 1e9, {"solar": 100, "wind": 0, "grid": 0, "storage": 0, "reserve": 0}, np.ones((1, electric.YEARS)))
     assert r["solar_mwh"][0, -1] == pytest.approx(r["solar_mw"][0, -1] * 6.0 * 365 * a["performance_ratio"])
 
 
@@ -136,8 +136,24 @@ def test_guardrail_warnings_fire_outside_limits():
     import electric
 
     a = electric.params()
-    warnings = electric.guardrails(a, {"solar": 60, "wind": 10, "grid": 25, "reserve": 5})
-    assert len(warnings) == 4  # solar cap, lines floor, storage floor, reserve range
+    warnings = electric.guardrails(a, {"solar": 60, "wind": 10, "grid": 5, "storage": 0, "reserve": 25})
+    assert len(warnings) == 4  # solar cap, lines minimum, storage minimum, reserve range
+
+
+def test_grid_share_follows_the_data():
+    """A mostly urban country with an existing grid (Libya) gets a small grid share; the split always sums to 100."""
+    import electric
+
+    for iso3 in ["LBY", "NGA", "KEN", "CIV", "COD"]:
+        a = electric.params(iso3=iso3)
+        rec = electric.recommend(iso3, a, electric.budget(iso3, a)["total"])
+        assert sum(rec["split"].values()) == 100
+        assert rec["split"]["reserve"] == 10
+        assert rec["split"]["storage"] in (5, 10)
+    a = electric.params(iso3="LBY")
+    lby = electric.recommend("LBY", a, electric.budget("LBY", a)["total"])
+    assert 15 <= lby["split"]["grid"] <= 20
+    assert "cities" in lby["banner"][0]
 
 
 def test_phased_spending_adds_up_and_reserve_fills_a_budget_cut():
@@ -152,11 +168,11 @@ def test_phased_spending_adds_up_and_reserve_fills_a_budget_cut():
 def test_access_is_capped_and_needs_both_lines_and_generation():
     electric, a, ctx, b = _plan("NGA")
     ones = np.ones((1, electric.YEARS))
-    full = electric.simulate(ctx, a, b["total"], {"solar": 30, "wind": 10, "grid": 48, "reserve": 12}, ones)
+    full = electric.simulate(ctx, a, b["total"], {"solar": 30, "wind": 10, "grid": 38, "storage": 10, "reserve": 12}, ones)
     assert (full["access_pct"] <= 100).all() and (full["clean_pct"] <= 100).all()
-    no_grid = electric.simulate(ctx, a, b["total"], {"solar": 100, "wind": 0, "grid": 0, "reserve": 0}, ones)
+    no_grid = electric.simulate(ctx, a, b["total"], {"solar": 100, "wind": 0, "grid": 0, "storage": 0, "reserve": 0}, ones)
     assert no_grid["access_pct"][0, -1] == pytest.approx(ctx["access0"])  # generation without delivery connects no one
-    no_gen = electric.simulate(ctx, a, b["total"], {"solar": 0, "wind": 0, "grid": 100, "reserve": 0}, ones)
+    no_gen = electric.simulate(ctx, a, b["total"], {"solar": 0, "wind": 0, "grid": 100, "storage": 0, "reserve": 0}, ones)
     assert no_gen["access_pct"][0, -1] == pytest.approx(ctx["access0"])  # lines without power connect no one
 
 

@@ -5,11 +5,12 @@ import { formatMoney } from '../../lib/format'
 export const SECTOR_STYLE: Record<Sector, { label: string; color: string }> = {
   solar: { label: 'Solar farms', color: '#f2a93b' },
   wind: { label: 'Wind farms', color: '#5ec8e5' },
-  grid: { label: 'Grid & storage', color: '#8a94a8' },
+  grid: { label: 'Grid lines', color: '#8a94a8' },
+  storage: { label: 'Battery storage', color: '#7bd88f' },
   reserve: { label: 'Reserve fund', color: '#3a4256' },
 }
 
-/** One bar split three ways; drag the round handles to move money between neighbouring buckets */
+/** One bar split five ways; drag the round handles to move money between neighbouring buckets */
 export default function SplitBar({ split, setSplit, amounts }: { split: Split; setSplit: (s: Split) => void; amounts: Split | null }) {
   const bar = useRef<HTMLDivElement>(null)
   const total = SECTORS.reduce((s, k) => s + split[k], 0) || 1

@@ -13,12 +13,11 @@ import model
 
 DATA = Path(__file__).parent / "data"
 YEARS = 10
-BUCKETS = ["solar", "wind", "grid", "reserve"]
-BUCKET_LABELS = {"solar": "Solar farms", "wind": "Wind farms", "grid": "Grid, transmission & storage", "reserve": "Reserve fund"}
+BUCKETS = ["solar", "wind", "grid", "storage", "reserve"]
+BUCKET_LABELS = {"solar": "Solar farms", "wind": "Wind farms", "grid": "Grid lines", "storage": "Battery storage", "reserve": "Reserve fund"}
 # Spending ramps up over the 10 years instead of all at once (the shares add up to 10 years of budget)
 PHASE = np.array([0.5, 0.7, 0.9, 1.05, 1.1, 1.1, 1.15, 1.15, 1.15, 1.2])
-METHOD = ("Allocated like an investment portfolio: more budget where energy returns are higher and safer, "
-          "with diversification limits so no single bet dominates.")
+
 
 ASSUMPTIONS = {
     # Budget
@@ -55,8 +54,6 @@ ASSUMPTIONS = {
                           "note": "Households reached per km of new line; lower in sparse rural areas."},
     "battery_cost_per_mwh": {"group": "Grid & storage", "value": 300_000, "min": 150_000, "max": 600_000, "unit": "$/MWh", "label": "Battery cost (estimate)",
                              "note": "Installed battery storage per MWh of capacity."},
-    "storage_share": {"group": "Grid & storage", "value": 0.30, "min": 0.0, "max": 0.7, "unit": "ratio", "label": "Storage share of grid budget (estimate)",
-                      "note": "Solar and wind are variable; storage covers gaps between sun, wind and demand."},
     "grid_build_years": {"group": "Grid & storage", "value": 1, "min": 1, "max": 3, "unit": "years", "label": "Grid build time (estimate)",
                          "note": "Years from funding to energized lines."},
     # Demand and value
@@ -68,18 +65,26 @@ ASSUMPTIONS = {
                       "note": "Cost of the power it replaces (often diesel or gas generation); sets paybacks."},
     "max_variable_share": {"group": "Demand & value", "value": 0.6, "min": 0.2, "max": 1.0, "unit": "ratio", "label": "Max solar + wind share of demand (estimate)",
                            "note": "Solar and wind are variable; beyond this share of demand, extra output is curtailed without large seasonal storage."},
-    # Portfolio guardrails (editable)
-    "single_source_cap": {"group": "Portfolio guardrails", "value": 0.40, "min": 0.2, "max": 1.0, "unit": "ratio",
+    # Budget split rules (editable)
+    "single_source_cap": {"group": "Budget split rules", "value": 0.50, "min": 0.2, "max": 1.0, "unit": "ratio",
                           "label": "Most for solar or wind alone", "note": "Neither solar nor wind gets more than this share of the budget on its own."},
-    "lines_floor": {"group": "Portfolio guardrails", "value": 0.25, "min": 0.0, "max": 0.6, "unit": "ratio",
-                    "label": "Least for grid lines", "note": "Power lines get at least this share whenever solar + wind exceed 30% of the budget."},
-    "storage_floor": {"group": "Portfolio guardrails", "value": 0.10, "min": 0.0, "max": 0.3, "unit": "ratio",
-                      "label": "Least for battery storage", "note": "Storage gets at least this share whenever solar + wind exceed 30% of the budget."},
-    "reserve_share": {"group": "Portfolio guardrails", "value": 0.12, "min": 0.0, "max": 0.3, "unit": "ratio",
-                      "label": "Reserve fund", "note": "Contingency for cost overruns and lean budget years; the safe range is 10–15%."},
-    "solar_risk": {"group": "Portfolio guardrails", "value": 0.15, "min": 0.0, "max": 1.0, "unit": "ratio", "label": "Solar risk (estimate)",
+    "lines_base": {"group": "Budget split rules", "value": 0.10, "min": 0.0, "max": 0.3, "unit": "ratio",
+                   "label": "Grid lines: starting share", "note": "Every plan spends at least this much on power lines."},
+    "lines_rural_weight": {"group": "Budget split rules", "value": 0.10, "min": 0.0, "max": 0.4, "unit": "ratio",
+                           "label": "Grid lines: extra per rural gap", "note": "Extra grid share = this × the share of rural people without power (the national gap where rural data is missing)."},
+    "lines_gap_weight": {"group": "Budget split rules", "value": 0.20, "min": 0.0, "max": 0.5, "unit": "ratio",
+                         "label": "Grid lines: extra per national gap", "note": "Extra grid share = this × the share of all people without power."},
+    "lines_max": {"group": "Budget split rules", "value": 0.30, "min": 0.1, "max": 0.6, "unit": "ratio",
+                  "label": "Grid lines: most", "note": "The grid share never goes above this."},
+    "storage_high": {"group": "Budget split rules", "value": 0.10, "min": 0.0, "max": 0.3, "unit": "ratio",
+                     "label": "Storage when generation is large", "note": "Battery share when more than 40% of the budget is left for solar and wind."},
+    "storage_low": {"group": "Budget split rules", "value": 0.05, "min": 0.0, "max": 0.3, "unit": "ratio",
+                    "label": "Storage otherwise", "note": "Battery share when 40% or less is left for solar and wind."},
+    "reserve_share": {"group": "Budget split rules", "value": 0.10, "min": 0.0, "max": 0.3, "unit": "ratio",
+                      "label": "Reserve fund", "note": "Contingency for cost overruns and lean budget years."},
+    "solar_risk": {"group": "Budget split rules", "value": 0.15, "min": 0.0, "max": 1.0, "unit": "ratio", "label": "Solar risk (estimate)",
                    "note": "Cost overrun and output variability; returns are divided by 1 + this risk."},
-    "wind_risk": {"group": "Portfolio guardrails", "value": 0.30, "min": 0.0, "max": 1.0, "unit": "ratio", "label": "Wind risk (estimate)",
+    "wind_risk": {"group": "Budget split rules", "value": 0.30, "min": 0.0, "max": 1.0, "unit": "ratio", "label": "Wind risk (estimate)",
                   "note": "Wind costs and output vary more than solar; returns are divided by 1 + this risk."},
     # Recommendation thresholds
     "solar_threshold": {"group": "Thresholds", "value": 5.5, "min": 3.5, "max": 7.0, "unit": "kWh/m²/day", "label": "High solar potential from",
@@ -233,26 +238,14 @@ def normalize(split) -> np.ndarray:
     return s / s.sum() if s.sum() > 0 else np.full(len(BUCKETS), 1 / len(BUCKETS))
 
 
-def grid_parts(a: dict, s: np.ndarray) -> tuple[float, float]:
-    """Split the grid bucket into lines and storage (shares of the whole budget). Storage takes its usual share of the
-    bucket, but when solar + wind exceed 30% it gets at least the storage floor, without pushing lines below theirs."""
-    grid = s[2]
-    storage = grid * a["storage_share"]
-    if s[0] + s[1] > 0.30:
-        lo, hi = a["storage_floor"], grid - a["lines_floor"]
-        if lo <= hi + 1e-9:  # tolerance: 0.35 - 0.25 is a hair under 0.10 in floating point
-            storage = float(np.clip(storage, lo, hi))
-    return grid - storage, storage
-
-
 def simulate(ctx: dict, a: dict, yearly_budget: float, split, factor: np.ndarray, capex_mult: float = 1.0, extra_delay: int = 0) -> dict:
     """10 years of phased building. factor: (scenarios, YEARS) multiplier on the budget. The reserve fund tops up
     project spending when the budget falls short or costs run over. New people get power only where both a line
     reaches them and new generation can supply them."""
     s = normalize(split)
-    lines_share, storage_share = grid_parts(a, s)
+    lines_share, storage_share = s[2], s[3]
     money = yearly_budget * factor * PHASE
-    project_share = 1 - s[3]
+    project_share = 1 - s[4]
     planned = yearly_budget * PHASE * project_share * capex_mult  # money needed to build the planned amounts
     actual = money * project_share
     S = factor.shape[0]
@@ -260,7 +253,7 @@ def simulate(ctx: dict, a: dict, yearly_budget: float, split, factor: np.ndarray
     bal = np.zeros(S)
     spend = np.zeros((S, YEARS))
     for t in range(YEARS):
-        bal = bal + money[:, t] * s[3]
+        bal = bal + money[:, t] * s[4]
         d = np.minimum(bal, np.maximum(0.0, planned[t] - actual[:, t]))
         bal = bal - d
         spend[:, t] = actual[:, t] + d
@@ -285,7 +278,7 @@ def simulate(ctx: dict, a: dict, yearly_budget: float, split, factor: np.ndarray
         "access_pct": np.minimum(100.0, ctx["access0"] + connected / pop * 100),
         "clean_pct": np.minimum(100.0, ctx["renew0"] + np.minimum((solar_mwh + wind_mwh) / ctx["demand_mwh"], a["max_variable_share"]) * 100),
         "solar_capex": np.cumsum(part(s[0]), axis=1), "wind_capex": np.cumsum(part(s[1]), axis=1),
-        "grid_capex": np.cumsum(part(s[2]), axis=1), "reserve": reserve, "reserve_drawn": np.cumsum(drawn, axis=1),
+        "grid_capex": np.cumsum(part(s[2] + s[3]), axis=1), "reserve": reserve, "reserve_drawn": np.cumsum(drawn, axis=1),
         "lines_share": lines_share, "storage_share": storage_share,
     }
 
@@ -297,22 +290,20 @@ def phased(yearly_budget: float, split) -> list[dict]:
 
 
 def guardrails(a: dict, split) -> list[str]:
-    """Plain warnings when a split leaves the safe portfolio limits."""
+    """Plain warnings when a split leaves the safe limits."""
     s = normalize(split)
-    lines, storage = grid_parts(a, s)
     cap = a["single_source_cap"] * 100
     out = []
     for i, name in [(0, "Solar"), (1, "Wind")]:
         if s[i] * 100 > cap + 0.5:
             out.append(f"{name} is {s[i] * 100:.0f}% of the budget, above the {cap:.0f}% single-source limit: one bad year for {name.lower()} would hit the whole plan.")
-    if s[0] + s[1] > 0.30:
-        if lines * 100 < a["lines_floor"] * 100 - 0.5:
-            out.append(f"Grid lines get {lines * 100:.0f}%, below the {a['lines_floor'] * 100:.0f}% floor: new power may not reach homes.")
-        if storage * 100 < a["storage_floor"] * 100 - 0.5:
-            out.append(f"Battery storage gets {storage * 100:.0f}%, below the {a['storage_floor'] * 100:.0f}% floor: solar and wind power would be lost at night and on calm days.")
-    if not 0.095 <= s[3] <= 0.155:
-        out.append(f"The reserve is {s[3] * 100:.0f}%, outside the safe 10–15% range: "
-                   + ("too little to absorb cost overruns." if s[3] < 0.10 else "money sits idle that could build power."))
+    if s[2] * 100 < a["lines_base"] * 100 - 0.5:
+        out.append(f"Grid lines get {s[2] * 100:.0f}%, below the {a['lines_base'] * 100:.0f}% minimum: new power may not reach homes.")
+    if s[0] + s[1] > 0 and s[3] * 100 < a["storage_low"] * 100 - 0.5:
+        out.append(f"Battery storage gets {s[3] * 100:.0f}%, below {a['storage_low'] * 100:.0f}%: solar and wind power would be lost at night and on calm days.")
+    if not 0.045 <= s[4] <= 0.155:
+        out.append(f"The reserve is {s[4] * 100:.0f}%, outside the safe 5–15% range: "
+                   + ("too little to absorb cost overruns." if s[4] < 0.05 else "money sits idle that could build power."))
     return out
 
 
@@ -342,28 +333,27 @@ def round1(split: dict) -> dict:
     return out
 
 
-def grid_balance(ctx: dict, a: dict, yearly_budget: float, gen_split: tuple[float, float]) -> float:
-    """Share of the project budget for grid & storage that balances delivery and generation over 10 years, capped at
-    what it takes to reach everyone unconnected."""
-    sw, ww = gen_split
-    solar_mwh_per_usd = ctx["solar"] * 365 * a["performance_ratio"] / a["solar_capex_per_mw"]
-    wind_mwh_per_usd = 8760 * wind_cf(a, ctx["wind"]) / a["wind_capex_per_mw"]
-    gen_people = (sw * solar_mwh_per_usd + ww * wind_mwh_per_usd) * 1000 / a["kwh_per_new_person"]
-    line_people = (1 - a["storage_share"]) * a["households_per_km"] * a["household_size"] / a["line_cost_per_km"]
-    balance = gen_people / (gen_people + line_people) if gen_people + line_people else 0.5
-    unconnected = ctx["population"] * (100 - ctx["access0"]) / 100
-    needed = unconnected / line_people / (yearly_budget * YEARS) if yearly_budget and line_people else 0.0
-    return float(np.clip(min(balance, needed), 0.0, 0.8))
+def lines_share(iso3: str, a: dict) -> dict:
+    """Grid lines share from the country's own gaps: base + weight x rural gap + weight x national gap, capped.
+    Where rural access has no data in the snapshot year, the national gap stands in for the rural gap."""
+    prof = profile(iso3)
+    acc = prof["access"]["value"] if prof["access"]["value"] is not None else 100.0
+    gap = (100 - acc) / 100
+    rural = prof["rural"]["value"]
+    rural_gap = (100 - rural) / 100 if rural is not None else gap
+    share = min(a["lines_max"], a["lines_base"] + a["lines_rural_weight"] * rural_gap + a["lines_gap_weight"] * gap)
+    return {"share": share, "gap": gap * 100, "rural_gap": rural_gap * 100, "rural_measured": rural is not None,
+            "urban_access": prof["urban"]["value"], "city_share": at(iso3, "urban_pct", prof["year"])["value"]}
 
 
 def recommend(iso3: str, a: dict, yearly_budget: float, peer: dict | None = None) -> dict:
-    """Heuristic, documented in RULE: risk-adjusted portfolio. Expected energy per dollar from the best NASA solar and
-    wind sites and the cost assumptions, divided by 1 + risk (cost overrun and variability), sets the solar vs wind split;
-    wind below 5 m/s gets nothing. Grid & storage gets the share that balances new lines against new generation, and
-    at least 25% (35% when solar + wind exceed 30%, so lines keep 25% and storage 10%). A 12% reserve covers overruns.
-    Neither solar nor wind may exceed 40% on its own; anything above the cap goes to the other source, then to the grid.
-    A peer can shift the mix: rural access rising faster than urban -> 10 points from generation to the grid;
-    clean share rising by 5 points or more -> 5 points from the grid to generation (never below the grid floor)."""
+    """Heuristic, documented in RULE: grid lines get 10% plus 10% x the rural gap plus 20% x the national gap (the share
+    of people without power), at most 30%. The reserve is 10%. Storage is decided before generation: 10% if more than
+    40% of the budget is left for generation, otherwise 5%. Solar and wind split the rest by expected energy per dollar
+    from the best NASA sites and the cost assumptions, divided by 1 + risk; wind below 5 m/s gets nothing. Neither may
+    exceed 50%; anything above the cap goes to the other generator, then to grid rehabilitation, so the total is always
+    100%. A peer can shift the mix: rural access rising faster than urban -> +5 points to the grid (within its cap);
+    clean share rising by 5 points or more -> those 5 points go back to generation."""
     ctx = context(iso3, a)
     s_ret = ctx["solar"] * 365 * a["performance_ratio"] / a["solar_capex_per_mw"] if ctx["solar"] >= 4.0 else 0.0
     w_ret = 0.0 if ctx["wind"] < 5.0 else 8760 * wind_cf(a, ctx["wind"]) / a["wind_capex_per_mw"]
@@ -371,65 +361,75 @@ def recommend(iso3: str, a: dict, yearly_budget: float, peer: dict | None = None
     if sw + ww == 0:
         sw = 1.0  # neither resource is strong: solar is still the most widely deployable
     sw, ww = sw / (sw + ww), ww / (sw + ww)
-    reserve = a["reserve_share"] * 100
-    floor_low = a["lines_floor"] * 100
-    floor_high = (a["lines_floor"] + a["storage_floor"]) * 100
-    grid = max(floor_low, grid_balance(ctx, a, yearly_budget, (sw, ww)) * (100 - reserve))
-    if 100 - reserve - grid > 30:
-        grid = max(grid, floor_high)
+    ls = lines_share(iso3, a)
+    grid = ls["share"] * 100
     why = []
     if peer:
         if peer.get("rural_gain") is not None and peer.get("urban_gain") is not None and peer["rural_gain"] > peer["urban_gain"]:
-            grid = min(100 - reserve, grid + 10)
+            grid = min(a["lines_max"] * 100, grid + 5)
             why.append("rural access rose fastest")
         if peer.get("clean_gain") is not None and peer["clean_gain"] >= 5:
-            grid = max(floor_high if 100 - reserve - grid + 5 > 30 else floor_low, grid - 5)
+            grid = max(a["lines_base"] * 100, grid - 5)
             why.append("its clean share rose")
-    gen = 100 - reserve - grid
+    reserve = a["reserve_share"] * 100
+    left = 100 - grid - reserve
+    storage = (a["storage_high"] if left > 40 else a["storage_low"]) * 100
+    gen = max(0.0, left - storage)
     cap = a["single_source_cap"] * 100
     solar, wind = gen * sw, gen * ww
     if solar > cap:
-        wind, solar = wind + (solar - cap) * (1 if ww > 0 else 0), cap
+        extra, solar = solar - cap, cap
+        room = cap - wind if ww > 0 else 0.0
+        wind += min(extra, room)
+        grid += extra - min(extra, room)  # what neither generator can take goes to grid rehabilitation
     if wind > cap:
-        solar, wind = min(cap, solar + wind - cap), cap
-    grid = 100 - reserve - solar - wind  # whatever the caps leave goes to the grid
-    split = round1({"solar": solar, "wind": wind, "grid": grid, "reserve": reserve})
-    out = {"split": split, "solar": ctx["solar"], "wind": ctx["wind"], "capped": {"solar": solar >= cap - 0.5, "wind": wind >= cap - 0.5}}
-    out["banner"] = explain(iso3, a, split, out["capped"])
-    out["method"] = METHOD
+        extra, wind = wind - cap, cap
+        room = cap - solar
+        solar += min(extra, room)
+        grid += extra - min(extra, room)
+    split = round1({"solar": solar, "wind": wind, "grid": grid, "storage": storage, "reserve": reserve})
+    capped = {"solar": solar >= cap - 0.5, "wind": wind >= cap - 0.5}
+    out = {"split": split, "solar": ctx["solar"], "wind": ctx["wind"], "capped": capped, "lines": ls}
+    out["banner"] = explain(iso3, a, split, capped)
+    out["method"] = ""
     if peer:
-        lead = "grid & storage" if "rural access rose fastest" in why else "solar and wind" if why else "the same mix"
+        lead = "grid lines" if "rural access rose fastest" in why else "solar and wind" if why else "the same mix"
         out["line"] = (f"Based on {peer['country']} {peer['year']}: more {lead} because {' and '.join(why)}." if why
                        else f"Based on {peer['country']} {peer['year']}: no clear rural or clean-power shift, so the resource-based mix.")
     return out
 
 
 def explain(iso3: str, a: dict, split: dict, capped: dict) -> list[str]:
-    """Three short sentences, built only from the country's data and the split."""
+    """Three short sentences, built only from the country's data and the split: grid, generation, storage and reserve."""
     name = model.latest(iso3)["country"]
     prof = profile(iso3)
     r = prof["resources"]
     sun, wind = r["solar"], r["wind"]
-    s_, w_, g_, res = split["solar"], split["wind"], split["grid"], split["reserve"]
-    cap = a["single_source_cap"] * 100
-    head = (f"Because {name} gets {sun_word(sun['value'], a)} ({sun['value']:.1f} kWh/m²/day at {sun['site']}) "
-            f"and {wind_word(wind['value'], a)} ({wind['value']:.1f} m/s at {wind['site']}), ")
-    note = lambda k: f", capped at {cap:.0f}% to limit single-source risk" if capped.get(k) else ""  # noqa: E731
-    if w_ == 0:
-        one = head + f"we put {s_}% into solar{note('solar')}, and nothing into wind, which is too weak below 5 m/s."
-    elif s_ >= w_:
-        one = head + f"we prioritize solar ({s_}%{note('solar')}) paired with wind ({w_}%)."
+    s = {k: int(round(v)) for k, v in split.items()}
+    ls = lines_share(iso3, a)
+    city, urban = ls["city_share"], ls["urban_access"]
+    if ls["gap"] < 1:
+        one = f"Almost everyone in {name} already has power, so only {s['grid']}% goes to grid lines, mostly to renew them."
+    elif city is not None and urban is not None and city >= 70 and urban >= 90:
+        one = (f"Because most people in {name} live in cities ({city:.0f}%) that already have power lines ({urban:.0f}% of city "
+               f"dwellers are connected), the main problem is not enough electricity to run them, so only {s['grid']}% goes to the grid.")
+    elif ls["rural_measured"] and ls["rural_gap"] >= 25:
+        one = (f"Because {ls['rural_gap']:.0f}% of people in rural areas have no power, {s['grid']}% goes to new grid lines "
+               f"to reach villages.")
     else:
-        one = head + f"we prioritize wind ({w_}%{note('wind')}) paired with solar ({s_}%)."
-    lines, storage = grid_parts(a, normalize(split))
-    acc, rur, urb = prof["access"]["value"], prof["rural"]["value"], prof["urban"]["value"]
-    gap = 100 - (acc or 100)
-    rural = (f", especially outside cities ({rur:.0f}% of rural people vs {urb:.0f}% in cities)"
-             if rur is not None and urb is not None and urb - rur >= 15 else "")
-    two = ((f"Because {gap:.0f}% of people lack power{rural}, " if gap >= 1 else "Because almost everyone already has power, ")
-           + f"{g_}% goes to grid lines and battery storage ({lines * 100:.0f}% lines, {storage * 100:.0f}% storage) "
-             f"to carry power to homes and keep it flowing at night and on calm days.")
-    three = f"A {res}% reserve protects against cost overruns and lean budget years."
+        one = f"Because {ls['gap']:.0f}% of people in {name} lack power, {s['grid']}% goes to new grid lines to reach them."
+    cap = a["single_source_cap"] * 100
+    head = (f"{name} gets {sun_word(sun['value'], a)} ({sun['value']:.1f} kWh/m²/day at {sun['site']}) "
+            f"and {wind_word(wind['value'], a)} ({wind['value']:.1f} m/s at {wind['site']}), so ")
+    note = lambda k: f", the {cap:.0f}% limit for one source" if capped.get(k) else ""  # noqa: E731
+    if s["wind"] == 0:
+        two = head + f"{s['solar']}% goes to solar{note('solar')} and nothing to wind, which is too weak below 5 m/s."
+    elif s["solar"] >= s["wind"]:
+        two = head + f"solar gets the most ({s['solar']}%{note('solar')}) with wind next ({s['wind']}%)."
+    else:
+        two = head + f"wind gets the most ({s['wind']}%{note('wind')}) with solar next ({s['solar']}%)."
+    three = (f"{s['storage']}% buys batteries to keep power flowing at night and on calm days, and a {s['reserve']}% reserve "
+             f"covers cost overruns and lean years.")
     return [one, two, three]
 
 

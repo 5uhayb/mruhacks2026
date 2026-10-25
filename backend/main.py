@@ -490,7 +490,7 @@ def advisor_data(f: dict) -> str:
         f"Yearly budget (estimate): ${sim.budget['total'] / 1e9:.2f} billion = {sim.budget['gdp']['share']:.1%} of GDP"
         + (f" + {sim.budget['resource']['share']:.0%} of {sim.budget['resource']['word']} income." if sim.budget["resource"]["amount"] else "."),
         f"Recommendation: {' '.join(sim.recommendation['banner'])}",
-        f"Current plan: solar {sim.split['solar']:.0f}%, wind {sim.split['wind']:.0f}%, grid & storage {sim.split['grid']:.0f}%, reserve {sim.split['reserve']:.0f}%. By {end} (estimates): "
+        f"Current plan: solar {sim.split['solar']:.0f}%, wind {sim.split['wind']:.0f}%, grid lines {sim.split['grid']:.0f}%, battery storage {sim.split['storage']:.0f}%, reserve {sim.split['reserve']:.0f}%. By {end} (estimates): "
         f"{cards['solar']['mw']:,.0f} MW solar, {cards['wind']['mw']:,.0f} MW wind (~{cards['wind']['turbines']:,.0f} turbines), "
         f"{cards['grid']['km']:,.0f} km of lines, {cards['grid']['storage_mwh']:,.0f} MWh storage, access {pct(cards['access']['value'])}, clean share {pct(cards['access']['clean'])}.",
         "Peers that closed their gap (World Bank data):" if p.peers else "No peer meets the selection rule.",
