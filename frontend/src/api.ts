@@ -162,6 +162,12 @@ export type Simulation = {
     clean_p10: number
     budget_p10: number
     budget_p90: number
+    on_track: number
+    on_track_threshold: number
+    block_years: number
+    drift_back: number
+    resource_years: string | null
+    resource_word: string
   }
   meta: Meta
 }

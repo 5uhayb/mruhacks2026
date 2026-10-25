@@ -239,7 +239,7 @@ function App() {
             <PlanTab country={country} sim={sim} split={split} setSplit={editSplit} onRecommended={() => { setSplit(null); setPlaybookLine(null) }}
               playbookLine={playbookLine} rule={peers?.playbook_rule ?? null} specs={specs} overrides={overrides} setOverrides={setOverrides} />
           )}
-          {country && tab === 'Stress' && (sim ? <StressTab sim={sim} /> : <div className="text-mute p-5 text-[0.85rem]">Simulating…</div>)}
+          {country && tab === 'Stress' && (sim ? <StressTab sim={sim} name={country.name} /> : <div className="text-mute p-5 text-[0.85rem]">Simulating…</div>)}
           {country && tab === 'Model' && <ModelTab country={country} peers={peers} />}
           </Boundary>
         </CountryPanel>

@@ -407,6 +407,9 @@ def peers(iso3: str):
 
 # ---------- Simulate ----------
 
+ON_TRACK = 0.9  # a plan stays on track if at least 90% of its planned spending happens
+
+
 class SimulateRequest(BaseModel):
     iso3: str
     split: dict[str, float] | None = None  # None = the recommended mix
@@ -465,6 +468,10 @@ def simulate(req: SimulateRequest):
     mc = electric.simulate(ctx, a, b["total"], split, factor)
     acc10, clean10 = mc["access_pct"][:, -1], mc["clean_pct"][:, -1]
     hist = model.country_rows(req.iso3).dropna(subset=["gdp_usd"])
+    # "Stays on track": the spending that really happens (reserve top-ups included) reaches 90% of the planned spending
+    planned_total = b["total"] * electric.PHASE.sum() * (1 - split[4])
+    on_track = float((mc["spend"].sum(axis=1) >= ON_TRACK * planned_total - 1e-6).mean()) if planned_total > 0 else 1.0
+    rev = model.revenue_history(req.iso3)
     return Simulation(
         budget=b, split=split_pct,
         split_amounts=dict(zip(electric.BUCKETS, (split * b["total"]).tolist())),
@@ -493,7 +500,10 @@ def simulate(req: SimulateRequest):
                  "access_paths": np.round(mc["access_pct"], 2).tolist(), "clean_paths": np.round(mc["clean_pct"], 2).tolist(),
                  "access_p10": float(np.percentile(acc10, 10)), "access_p50": float(np.percentile(acc10, 50)),
                  "access_p90": float(np.percentile(acc10, 90)), "clean_p10": float(np.percentile(clean10, 10)),
-                 "budget_p10": float(np.percentile(factor[:, -1], 10)), "budget_p90": float(np.percentile(factor[:, -1], 90))},
+                 "budget_p10": float(np.percentile(factor[:, -1], 10)), "budget_p90": float(np.percentile(factor[:, -1], 90)),
+                 "on_track": on_track, "on_track_threshold": ON_TRACK, "block_years": 3, "drift_back": 0.3,
+                 "resource_years": f"{rev[0]['year']}–{rev[-1]['year']}" if rev and b["resource"]["amount"] else None,
+                 "resource_word": b["resource"]["word"]},
         meta=Meta(detail=f"500 budget futures from GDP and resource income history · 3 shocks", server_ms=(time.time() - start) * 1000),
     )
 

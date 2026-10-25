@@ -49,7 +49,16 @@ function Futures({ paths, start, startYear, shock }: { paths: number[][]; start:
   )
 }
 
-export default function StressTab({ sim }: { sim: Simulation }) {
+function How({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="border-edge bg-space/40 mt-3 rounded-md border px-3 py-2 text-[0.8rem] leading-snug">
+      <div className="label mb-0.5">How we calculated this</div>
+      <p className="text-mute">{children}</p>
+    </div>
+  )
+}
+
+export default function StressTab({ sim, name }: { sim: Simulation; name: string }) {
   const [shock, setShock] = useState('budget_cut')
   const [compare, setCompare] = useState(false)
   const s = sim.shocks[shock]
@@ -82,9 +91,16 @@ export default function StressTab({ sim }: { sim: Simulation }) {
           startYear={startYear} shock={compare ? shockPath : null} />
         <p className="mt-3 text-[0.9rem] leading-snug">
           In 9 of 10 futures, {useAccess ? 'electricity access' : 'clean electricity'} still reaches{' '}
-          <span className="num text-gold">{formatPct(useAccess ? f.access_p10 : f.clean_p10)}</span> by {startYear + 10}.{' '}
-          <Info text={`The budget in each future follows random 3-year stretches of the country's own GDP changes (${f.history_years}) and, where it has one, its resource-income changes (block bootstrap, drifting 30% a year back to normal). By year 10 the budget ranges from ${formatPct(f.budget_p10 * 100, 0)} to ${formatPct(f.budget_p90 * 100, 0)} of today's in 8 of 10 futures.`} />
+          <span className="num text-gold">{formatPct(useAccess ? f.access_p10 : f.clean_p10)}</span> by {startYear + 10},
+          and the plan stays on track in <span className="num">{formatPct(f.on_track * 100, 0)}</span> of them.
         </p>
+        <How>
+          We ran the plan through {f.runs} possible futures. In each one, {name}'s budget rises and falls the way its own economy really did:
+          year-to-year changes in GDP from {f.history_years}{f.resource_years ? ` and in ${f.resource_word} income from ${f.resource_years}` : ''},
+          picked at random in {f.block_years}-year chunks, with the budget drifting {formatPct(f.drift_back * 100, 0)} a year back toward normal.
+          When money runs short or costs run over, the reserve fund tops up spending. A plan "stays on track" if at least {formatPct(f.on_track_threshold * 100, 0)} of
+          its planned spending happens. By year 10 the budget ranges from {formatPct(f.budget_p10 * 100, 0)} to {formatPct(f.budget_p90 * 100, 0)} of today's in 8 of 10 futures.
+        </How>
       </Section>
 
       <div className="border-edge border-b px-5 py-3">
@@ -136,6 +152,10 @@ export default function StressTab({ sim }: { sim: Simulation }) {
           {s.note.split('. ')[0].replace(/\.$/, '')}.{' '}
           <Info text={`${s.note} The red dashed line on the futures chart is this shock, ending at ${formatPct(shockPath[shockPath.length - 1])} in ${startYear + 10}.`} />
         </p>
+        <How>
+          We ran the same plan again with just one thing changed: {s.detail.charAt(0).toLowerCase() + s.detail.slice(1)} Everything else stays the same,
+          and the reserve fund covers what it can of any shortfall or overrun. The table compares {startYear + 10} with and without the shock.
+        </How>
       </Section>
       )}
     </>
