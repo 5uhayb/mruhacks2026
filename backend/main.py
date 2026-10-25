@@ -580,7 +580,29 @@ def greet(name: str | None) -> str:
     if name:
         return (f"Hi! I can help you plan how {name} gets more people connected: ask what to do first, why its top peer "
                 f"succeeded, whether solar or wind fits better, or what could go wrong.")
-    return "Hi! Pick a country on the globe or a quick pick, and I'll help plan how it gets more people connected."
+    return ("Hi! I can answer questions about electricity access around the world, or pick a country on the globe "
+            "for a plan of its own.")
+
+
+def world_data() -> str:
+    """App data for questions asked with no country selected: how many countries are in each tier, and where most
+    people without power live (World Bank, latest year per country)."""
+    rows = []
+    for c in world().countries:
+        if not c.access:
+            continue
+        y = max(c.access)
+        pop = model.latest(c.iso3)["population"] or 0
+        rows.append((c.name, c.access[y], y, pop * (100 - c.access[y]) / 100))
+    tiers = {"below 60%": sum(r[1] < 60 for r in rows), "60-90%": sum(60 <= r[1] < 90 for r in rows), "90% or more": sum(r[1] >= 90 for r in rows)}
+    top = sorted(rows, key=lambda r: -r[3])[:8]
+    return "\n".join([
+        "No country is selected; this is world-level data (World Bank, latest year per country).",
+        "Countries by electricity access: " + ", ".join(f"{k}: {v}" for k, v in tiers.items()) + ".",
+        f"People without electricity in these {len(rows)} countries: about {sum(r[3] for r in rows) / 1e6:.0f} million.",
+        "Most people without power: " + "; ".join(f"{n} {a:.0f}% access ({y}), about {u / 1e6:.0f} million without" for n, a, y, u in top) + ".",
+        "Tell the user they can pick a country on the globe for its own plan.",
+    ])
 
 
 def advisor_offline(req: AdvisorRequest, f: dict) -> str:
@@ -627,11 +649,23 @@ def ask_advisor(req: AdvisorRequest):
     """Short answer for the selected country. AI keys stay on the server; falls back to app data offline."""
     start = time.time()
     name = model.latest(req.iso3)["country"] if req.iso3 and model.known(req.iso3) else None
-    if GREETING.match(req.question) or not req.iso3:
-        # Greetings get an instant friendly reply; without a country there is no data to reason about yet
-        text = greet(name)  # with no country selected, greet() asks the user to pick one
-        return AdvisorAnswer(answer=text, sources=[], mode="greeting", label="",
+    if GREETING.match(req.question):
+        # Greetings get an instant friendly reply
+        return AdvisorAnswer(answer=greet(name), sources=[], mode="greeting", label="",
                              meta=Meta(detail="advisor · greeting", server_ms=(time.time() - start) * 1000))
+    if not req.iso3:
+        # No country selected: still answer, from world-level app data
+        job = ADVISOR_POOL.submit(advisor.ask, req.question, world_data())
+        try:
+            out = job.result(timeout=ADVISOR_DEADLINE_S)
+        except FutureTimeout:
+            out = {"answer": None, "sources": [], "mode": "offline", "label": advisor.OFFLINE, "errors": [f"AI over {ADVISOR_DEADLINE_S}s"]}
+        if out["answer"] is None:
+            out.update(answer="The AI is unavailable right now. " + world_data().split("\n", 2)[1]
+                              + " Pick a country on the globe for its own plan.", label=advisor.OFFLINE)
+        return AdvisorAnswer(answer=out["answer"], sources=out["sources"], mode=out["mode"], label=out["label"],
+                             note="; ".join(out["errors"]) if out["errors"] else None,
+                             meta=Meta(detail="advisor · world data", server_ms=(time.time() - start) * 1000))
     check(req.iso3)
     f = advisor_facts(req)
     job = ADVISOR_POOL.submit(advisor.ask, req.question, advisor_data(f))

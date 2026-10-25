@@ -80,7 +80,7 @@ export default function Advisor({ iso3, name, split, overrides, sim, peers }: {
           </div>
           <div className="scroll-thin flex-1 space-y-4 overflow-y-auto px-4 py-3 text-[0.84rem] leading-snug">
             {entries.length === 0 && (
-              <p className="text-mute">{iso3 ? `Answers use Nahda's numbers for ${name}; web search adds real-world context when available.` : 'Say hello, or pick a country to ask about its plan.'}</p>
+              <p className="text-mute">{iso3 ? `Answers use Nahda's numbers for ${name}; web search adds real-world context when available.` : 'Ask anything about electricity access, or pick a country on the globe for its own plan.'}</p>
             )}
             {entries.map((e, i) => (
               <div key={i}>
@@ -111,7 +111,7 @@ export default function Advisor({ iso3, name, split, overrides, sim, peers }: {
                 ))}
               </div>}
               <form onSubmit={(ev) => { ev.preventDefault(); if (text.trim()) { ask(text.trim(), null); setText('') } }}>
-                <input type="text" value={text} onChange={(ev) => setText(ev.target.value)} placeholder={name ? `Ask about ${name}…` : 'Say hello…'} disabled={busy}
+                <input type="text" value={text} onChange={(ev) => setText(ev.target.value)} placeholder={name ? `Ask about ${name}…` : 'Ask a question…'} disabled={busy}
                   className="w-full px-3 py-1.5 text-[0.84rem]" aria-label="Question" />
               </form>
           </div>
