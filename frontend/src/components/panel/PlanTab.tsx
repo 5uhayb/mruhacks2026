@@ -3,6 +3,7 @@ import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Too
 import { SECTORS, type AssumptionSpec, type Country, type Simulation, type Split } from '../../api'
 import { formatCompact, formatInt, formatMoney, formatNumber, formatPct } from '../../lib/format'
 import { CountUp, Info, Section, fitDomain } from '../ui'
+import AIRecommendation from './AIRecommendation'
 import SplitBar, { SECTOR_STYLE } from './SplitBar'
 
 const AXIS = { stroke: '#4b5468', fontSize: 11, tickLine: false, axisLine: false, fontFamily: 'Geist Mono Variable' }
@@ -127,6 +128,7 @@ export default function PlanTab({ country, sim, split, setSplit, onRecommended, 
                 <ul className="space-y-0.5">{sim.guardrails.map((g) => <li key={g}>{g}</li>)}</ul>
               </div>
             )}
+            <AIRecommendation iso3={country.iso3} split={split} assumptions={overrides} />
           </>
         )}
         {shown && <SplitBar split={shown} setSplit={setSplit} amounts={sim?.split_amounts ?? null} />}

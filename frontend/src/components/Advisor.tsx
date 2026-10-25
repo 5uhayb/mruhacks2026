@@ -96,6 +96,7 @@ export default function Advisor({ iso3, name, split, overrides, sim, peers }: {
                       </ol>
                     )}
                     {e.answer.label && <div className={`mt-1.5 text-[0.7rem] ${e.answer.mode === 'offline' ? 'text-gold/80' : 'text-faint'}`}>{e.answer.label}</div>}
+                    {e.answer.note && <div className="text-faint mt-0.5 text-[0.68rem]">Why: {e.answer.note}</div>}
                   </>
                 )}
               </div>

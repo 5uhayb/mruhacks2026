@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { askAdvisor, type AdvisorAnswer, type Country, type Peer, type Peers } from '../../api'
+import { getPeerWeb, type Country, type Peer, type Peers, type WebPart } from '../../api'
 import { formatPct } from '../../lib/format'
 import { Flag, Info, Section, Sparkline } from '../ui'
 
@@ -12,29 +12,35 @@ const LINES = [
   { key: 'clean', label: 'Clean share', color: '#7bd88f' },
 ] as const
 
-const webCache = new Map<string, Promise<AdvisorAnswer>>()
+const webCache = new Map<string, Promise<WebPart>>()
 
-/** "How they did it": web context from the backend advisor, shown only when it really came from web search */
-function WebContext({ iso3, peer }: { iso3: string; peer: Peer }) {
-  const [answer, setAnswer] = useState<AdvisorAnswer | null>(null)
+/** "What [peer] did": one example from Google Search, cached per peer; says so plainly when no source is found */
+function WhatTheyDid({ iso3, peer }: { iso3: string; peer: Peer }) {
+  const [web, setWeb] = useState<WebPart | null>(null)
   useEffect(() => {
     let live = true
     const key = `${peer.iso3}-${peer.year}`
-    const q = `How did ${peer.country} expand electricity access between ${peer.detail.years[0]} and ${peer.detail.years[1]}? Two or three sentences.`
-    const job = webCache.get(key) ?? webCache.set(key, askAdvisor({ iso3, question: q, kind: 'peer_web', split: null, assumptions: {} })).get(key)!
-    job.then((a) => live && setAnswer(a)).catch(() => {})
+    const job = webCache.get(key) ?? webCache.set(key, getPeerWeb(iso3, peer.iso3, peer.year)).get(key)!
+    job.then((w) => live && setWeb(w)).catch(() => live && setWeb({ unavailable: 'the web lookup did not answer' }))
     return () => {
       live = false
     }
   }, [iso3, peer])
-  if (!answer || answer.mode !== 'web' || answer.sources.length === 0) return null
   return (
     <div className="border-edge rounded-md border p-3">
-      <div className="label mb-1">How they did it · From web sources</div>
-      <p className="text-[0.84rem] leading-snug">{answer.answer}</p>
-      <ol className="mt-2 space-y-0.5 text-[0.74rem]">
-        {answer.sources.map((s, i) => <li key={i}><a href={s.url} target="_blank" rel="noreferrer" className="text-cyan hover:underline">{i + 1}. {s.title}</a></li>)}
-      </ol>
+      <div className="label text-cyan mb-1">What {peer.country} did · From the web</div>
+      {!web && <p className="text-mute text-[0.82rem]">Looking for a sourced example…</p>}
+      {web?.text && (
+        <>
+          <p className="text-[0.84rem] leading-snug">{web.text}</p>
+          <ol className="mt-2 space-y-0.5 text-[0.74rem]">
+            {web.sources?.map((s, i) => <li key={i}><a href={s.url} target="_blank" rel="noreferrer" className="text-cyan hover:underline">{i + 1}. {s.title}</a></li>)}
+          </ol>
+        </>
+      )}
+      {web?.unavailable && (
+        <p className="text-mute text-[0.82rem] leading-snug">No sourced example: {web.unavailable}. We don't show one rather than guess.</p>
+      )}
     </div>
   )
 }
@@ -50,6 +56,7 @@ function Detail({ country, peer, isPlaybookPeer, onPlaybook, onBack }: {
   return (
     <Section title={`${peer.country}, ${d.years[0]}–${d.years[1]}`} right={<button onClick={onBack} className="hover:text-ink">← All peers</button>}>
       <div className="space-y-4">
+        <p className="text-[0.88rem] leading-snug">{peer.why_match}</p>
         <div className="h-[180px]">
           <div className="text-mute mb-1 flex flex-wrap gap-x-3 text-[0.72rem]">
             {LINES.map((l) => <span key={l.key}><span className="mr-1 inline-block h-[2px] w-3 align-middle" style={{ background: l.color }} />{l.label}</span>)}
@@ -67,7 +74,7 @@ function Detail({ country, peer, isPlaybookPeer, onPlaybook, onBack }: {
         </div>
 
         <div>
-          <div className="label mb-1.5">What changed</div>
+          <div className="label mb-1.5">What changed · World Bank data</div>
           <ul className="space-y-1 text-[0.85rem] leading-snug">{d.bullets.map((b) => <li key={b}>• {b}</li>)}</ul>
         </div>
 
@@ -77,7 +84,7 @@ function Detail({ country, peer, isPlaybookPeer, onPlaybook, onBack }: {
           </div>
         )}
 
-        <WebContext iso3={country.iso3} peer={peer} />
+        <WhatTheyDid iso3={country.iso3} peer={peer} />
 
         <div className="border-edge rounded-md border p-3">
           <div className="label mb-1">Lesson for {country.name}</div>

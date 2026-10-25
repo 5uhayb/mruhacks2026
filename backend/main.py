@@ -5,6 +5,7 @@ mix from real resource data. Everything is computed from local files in data/ an
 Ask Nahda advisor calls an external AI service."""
 
 import json
+import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
@@ -37,6 +38,7 @@ TARGET_ACCESS = 90  # the planner focuses on countries below 90% access
 async def lifespan(_: FastAPI):
     """Load data and models once, so every request is fast."""
     start = time.time()
+    print(f"Gemini key loaded: {'yes' if os.getenv('GEMINI_API_KEY') else 'no'} · model {advisor.GEMINI_MODEL}", flush=True)
     ML["peers"] = TwinIndex.build(load_panel(), ELECTRIC_FEATURES)
     ML["impact"] = joblib.load(MODELS / "impact.joblib")
     ML["explainer"] = shap.TreeExplainer(ML["impact"])
@@ -309,6 +311,60 @@ def lesson(iso3: str, peer: dict) -> str:
 RANK_RULE = " Ranked 60% by similarity and 40% by the 10-year gain."
 
 
+def why_match(iso3: str, name: str, peer: dict) -> str:
+    """Plain sentence on why a peer matches, from the features the matching actually compared (at the end of each
+    5-year path): access, urban and rural access, clean share, income per person, population. Picks the 3 closest."""
+    snap, y = electric.snapshot_year(iso3), peer["year"]
+    me = lambda col: electric.at(iso3, col, snap)["value"]  # noqa: E731
+    them = lambda col: electric.at(peer["iso3"], col, y)["value"]  # noqa: E731
+    stats = ML["peers"].stats
+    options = []
+
+    def add(col, phrase, scale_col=None):
+        a, b = them(col), me(col)
+        if a is None or b is None:
+            return
+        sd = stats.get(scale_col or col, (0, 1))[1] or 1
+        options.append((abs(a - b) / sd, phrase(a, b)))
+
+    add("electricity_access_pct", lambda a, b: f"a similar share of people with power ({a:.0f}% vs {b:.0f}%)")
+    rural_y = electric.at(peer["iso3"], "rural_access_pct", y)
+    rural_me = electric.profile(iso3)["rural"]["value"]
+    if rural_y["value"] is not None and rural_me is not None and rural_y["year"] == y:
+        sd = stats.get("rural_access_pct", (0, 1))[1] or 1
+        options.append((abs(rural_y["value"] - rural_me) / sd,
+                        f"a similar rural gap ({100 - rural_y['value']:.0f}% vs {100 - rural_me:.0f}% of rural people without power)"))
+    add("urban_access_pct", lambda a, b: f"similar power in cities ({a:.0f}% vs {b:.0f}%)")
+    small = lambda v: f"{v:.2f}%" if v < 1 else f"{v:.1f}%"  # noqa: E731
+    add("renewable_electricity_pct", lambda a, b: (f"a small clean share ({small(a)} vs {small(b)})" if max(a, b) < 10
+                                                   else f"a similar clean share ({a:.0f}% vs {b:.0f}%)"))
+    gdp_a, gdp_b = them("gdp_per_capita_usd"), me("gdp_per_capita_usd")
+    if gdp_a and gdp_b:
+        sd = stats.get("log_gdp_per_capita", (0, 1))[1] or 1
+        options.append((abs(np.log10(gdp_a) - np.log10(gdp_b)) / sd, f"similar income per person (${gdp_a:,.0f} vs ${gdp_b:,.0f})"))
+    pop_a, pop_b = them("population"), me("population")
+    if pop_a and pop_b:
+        sd = stats.get("log_population", (0, 1))[1] or 1
+        options.append((abs(np.log10(pop_a) - np.log10(pop_b)) / sd, f"a similar population ({pop_a / 1e6:.1f} vs {pop_b / 1e6:.1f} million)"))
+    best = [ph for _, ph in sorted(options)[:3]]
+    if not best:
+        return f"{peer['country']} in {y} followed a similar 5-year electricity path to {name}'s."
+    listed = ", ".join(best[:-1]) + (", and " if len(best) > 1 else "") + best[-1]
+    return f"{peer['country']} in {y} looked like {name} in {snap}: {listed}."
+
+
+@app.get("/api/peers/{iso3}/{peer}/web")
+def peer_web(iso3: str, peer: str, year: int):
+    """One concrete example of what the peer did in its 10-year window, from Google Search (cached per peer)."""
+    check(iso3)
+    if not model.known(peer):
+        raise HTTPException(404, f"No data for {peer}")
+    pname = model.latest(peer)["country"]
+    out = advisor.web(f"peer:{peer}:{year}", f"Between {year} and {year + 10}, what was one concrete thing {pname} did to expand "
+                                             f"electricity access (a program, policy, or project)? Give one example with its name and years.")
+    return {"peer": peer, "years": [year, year + 10], **out}
+
+
 class Peers(BaseModel):
     year: int
     access_now: float
@@ -332,11 +388,12 @@ def peers(iso3: str):
     for p in found["peers"]:
         p["rank_score"] = 0.6 * p["similarity"] / 100 + 0.4 * min(40.0, p["access"][-1] - p["access"][0]) / 40
     ps = [peer_details(p) for p in sorted(found["peers"], key=lambda p: -p["rank_score"])[:3]]
+    name = model.latest(iso3)["country"]
     for p in ps:
         p["lesson"] = lesson(iso3, p)
-    name = model.latest(iso3)["country"]
-    top = (f"#1 match: {ps[0]['country']} from {ps[0]['year']}, a {ps[0]['similarity']:.0f}% similar path to {name}'s, "
-           f"then {ps[0]['access_change']:+.0f}% more people connected within 10 years.") if ps else None
+        p["why_match"] = why_match(iso3, name, p)
+    top = (f"#1 match: {ps[0]['country']} from {ps[0]['year']}, then {ps[0]['access_change']:+.0f}% more people connected "
+           f"within 10 years. {ps[0]['why_match']}") if ps else None
     playbook = None
     if ps:
         a = electric.params(iso3=iso3)
@@ -460,6 +517,7 @@ class AdvisorAnswer(BaseModel):
     sources: list[dict]
     mode: str
     label: str
+    note: str | None = None  # why AI or web search was unavailable, shown in the panel
     meta: Meta
 
 
@@ -575,8 +633,54 @@ def ask_advisor(req: AdvisorRequest):
         out.update(answer=advisor_offline(req, f), label=advisor.OFFLINE)
     detail = {"web": "Gemini + Google Search", "model": "Gemini (search unavailable)", "offline": "offline template"}[out["mode"]]
     return AdvisorAnswer(answer=out["answer"], sources=out["sources"], mode=out["mode"], label=out["label"],
+                         note="; ".join(out["errors"]) if out["errors"] else None,
                          meta=Meta(detail=f"advisor · {detail}" + (f" · {out['errors'][0]}" if out["errors"] else ""),
                                    server_ms=(time.time() - start) * 1000))
+
+
+# ---------- AI recommendation (Plan tab) ----------
+
+class RecommendationRequest(BaseModel):
+    iso3: str
+    split: dict[str, float] | None = None
+    assumptions: dict[str, float] = {}
+
+
+def data_facts(iso3: str, sim) -> list[str]:
+    """'From the data': numbers from World Bank and NASA only, no AI."""
+    prof = electric.profile(iso3)
+    r = prof["resources"]
+    name = model.latest(iso3)["country"]
+    acc, urb, rur, cln = (prof[k]["value"] for k in ["access", "urban", "rural", "clean"])
+    out = [f"In {prof['year']}, {acc:.1f}% of people in {name} had electricity"
+           + (f" ({urb:.0f}% in cities" + (f", {rur:.0f}% in rural areas)." if rur is not None else
+                                            f"; rural access has no data since {prof['rural'].get('last_measured')}).") if urb is not None else ".")
+           + " (World Bank)",
+           f"Clean sources made {cln:.2f}% of its electricity (World Bank, {prof['year']})." if cln is not None and cln < 1
+           else f"Clean sources made {cln:.0f}% of its electricity (World Bank, {prof['year']})." if cln is not None else "",
+           f"Strongest sunlight: {r['solar']['value']:.1f} kWh/m²/day at {r['solar']['site']}; strongest 50 m wind: "
+           f"{r['wind']['value']:.1f} m/s at {r['wind']['site']} (NASA POWER).",
+           f"Yearly budget about ${sim.budget['total'] / 1e9:.2f} billion (estimate from World Bank GDP and resource income)."]
+    return [x for x in out if x]
+
+
+@app.post("/api/recommendation")
+def recommendation(req: RecommendationRequest):
+    """Three labelled parts: From the data (no AI), Analysis (AI, cached per country and split), From the web (Google
+    Search, cached per country). AI is never called on every slider tick: the frontend asks only on demand."""
+    check(req.iso3)
+    start = time.time()
+    sim = simulate(SimulateRequest(iso3=req.iso3, split=req.split, assumptions=req.assumptions))
+    split = {k: int(5 * round(v / 5)) for k, v in sim.split.items()}  # cache key: the split rounded to 5 points
+    key = f"{req.iso3}:{split}:{sorted(req.assumptions.items())}"
+    f = advisor_facts(AdvisorRequest(iso3=req.iso3, question="recommendation", split=req.split, assumptions=req.assumptions))
+    ai = advisor.analysis(key, advisor_data(f))
+    name = model.latest(req.iso3)["country"]
+    r = electric.profile(req.iso3)["resources"]
+    web = advisor.web(f"country:{req.iso3}", f"What solar or wind power projects exist or are planned in {name} (for example near "
+                                            f"{r['solar']['site']} or {r['wind']['site']}), and what has held back electricity supply there?")
+    return {"split_used": sim.split, "data": data_facts(req.iso3, sim), "analysis": ai, "web": web,
+            "offline": sim.recommendation["banner"], "server_ms": (time.time() - start) * 1000}
 
 
 @app.get("/api/assumptions")

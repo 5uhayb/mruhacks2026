@@ -107,6 +107,7 @@ export type Peer = {
   result: string
   access_change: number
   lesson: string
+  why_match: string
   detail: {
     years: [number, number]
     series: { year: number; total: number | null; rural: number | null; urban: number | null; clean: number | null }[]
@@ -168,7 +169,11 @@ export type AssumptionSpec = { group: string; value: number; min: number; max: n
 export type SimulateInput = { iso3: string; split: Split | null; assumptions: Record<string, number> }
 
 export type AdvisorKind = 'mix' | 'peer' | 'siting' | 'first' | 'risk' | 'peer_web'
-export type AdvisorAnswer = { answer: string; sources: { title: string; url: string }[]; mode: 'web' | 'model' | 'offline' | 'greeting'; label: string; meta: Meta }
+export type Source = { title: string; url: string }
+export type AdvisorAnswer = { answer: string; sources: Source[]; mode: 'web' | 'model' | 'offline' | 'greeting'; label: string; note?: string | null; meta: Meta }
+/** Web context: real text with sources, or the reason it is unavailable */
+export type WebPart = { text?: string; sources?: Source[]; unavailable?: string }
+export type AIRecommendation = { split_used: Split; data: string[]; analysis: { text?: string; unavailable?: string }; web: WebPart; offline: string[]; server_ms: number }
 export type AdvisorStatus = { key: boolean; last_mode: AdvisorAnswer['mode'] | null }
 
 export const getWorld = async () => (await api.get<World>('/world')).data
@@ -176,6 +181,10 @@ export const getCountry = async (iso3: string) => (await api.get<Country>(`/coun
 export const getPeers = async (iso3: string) => (await api.get<Peers>(`/peers/${iso3}`)).data
 export const simulate = async (input: SimulateInput) => (await api.post<Simulation>('/simulate', input)).data
 export const getAssumptions = async () => (await api.get<Record<string, AssumptionSpec>>('/assumptions')).data
+export const getRecommendation = async (iso3: string, split: Split | null, assumptions: Record<string, number>) =>
+  (await api.post<AIRecommendation>('/recommendation', { iso3, split, assumptions }, { timeout: 45000 })).data
+export const getPeerWeb = async (iso3: string, peer: string, year: number) =>
+  (await api.get<WebPart & { peer: string; years: [number, number] }>(`/peers/${iso3}/${peer}/web`, { params: { year }, timeout: 30000 })).data
 export const getAdvisorStatus = async () => (await api.get<AdvisorStatus>('/advisor/status')).data
 export const askAdvisor = async (input: Omit<SimulateInput, 'iso3'> & { iso3: string | null; question: string; kind: AdvisorKind | null }) =>
   (await api.post<AdvisorAnswer>('/advisor', input, { timeout: 45000 })).data
