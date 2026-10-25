@@ -200,18 +200,22 @@ function App() {
       {world && <CommandBar countries={world.countries} quickPicks={world.quick_picks} quickPickRule={world.quick_pick_rule} onSelect={select} />}
 
       {world && (
-        <div className="fade text-mute pointer-events-none absolute top-[146px] left-5 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.72rem]">
-          <span className="text-ink">Electricity access, {shownYear > lastMeasured ? `${shownYear} projected` : `latest data to ${shownYear}`}</span>
-          {[...TIERS].reverse().map((t) => (
-            <span key={t.label}><span style={{ color: t.hex }}>●</span> {t.range} · {t.label}</span>
-          ))}
-          <span><span style={{ color: NO_DATA }}>●</span> No data</span>
-          {shownYear > lastMeasured && <span className="text-gold/80">gold tint = projected</span>}
+        <div className="fade text-mute bg-space/70 pointer-events-none absolute top-[146px] left-5 z-10 space-y-1 rounded-md px-2.5 py-2 text-[0.72rem]">
+          <div className="text-ink">Electricity access ({shownYear}{shownYear > lastMeasured ? ', forecast' : ''})</div>
+          <div className="flex gap-3">
+            {[...TIERS].reverse().map((t) => (
+              <span key={t.label}><span style={{ color: t.hex }}>●</span> {t.min === 0 ? 'Under 60%' : t.min === 60 ? '60–90%' : 'Over 90%'}</span>
+            ))}
+          </div>
+          <div className="flex gap-3">
+            <span><span style={{ color: NO_DATA }}>●</span> No data</span>
+            <span><span className="text-gold">✦</span> Gold tint = forecast</span>
+          </div>
         </div>
       )}
       {world && !selected && (
-        <div className="fade pointer-events-none absolute top-[184px] left-5 z-10 max-w-[440px]">
-          <p className="text-[1.05rem] leading-snug">Pick an under-connected country to see peers that closed the gap and a solar, wind and grid plan.</p>
+        <div className="fade pointer-events-none absolute top-[226px] left-5 z-10 max-w-[440px]">
+          <p className="text-[1.05rem] leading-snug">Millions still live without reliable power. See how countries that fixed it did it, and plan the comeback.</p>
           <p className="text-mute mt-1.5 text-[0.85rem]">Click a country, a quick pick above, or press Ctrl K to search.</p>
         </div>
       )}

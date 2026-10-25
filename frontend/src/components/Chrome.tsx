@@ -62,9 +62,8 @@ export function CommandBar({ countries, quickPicks, quickPickRule, onSelect }: {
         <div className="flex items-baseline gap-2">
           <span className="text-[1.15rem] font-semibold tracking-tight">Nahda</span>
           <span className="text-mute text-[1rem]" lang="ar">نهضة</span>
-          <span className="text-mute text-[0.95rem]">— Electrification planner</span>
+          <span className="text-mute text-[0.95rem]">— Reviving the world's power grids</span>
         </div>
-        <div className="text-faint text-[0.75rem]">Match under-connected countries with peers that closed their electricity gap.</div>
       </div>
       <div className="pointer-events-auto relative w-[420px]">
         <div className="relative">
