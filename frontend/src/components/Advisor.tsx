@@ -82,7 +82,7 @@ export default function Advisor({ iso3, name, split, overrides, sim, peers }: {
   return (
     <div className="pointer-events-none fixed right-5 bottom-5 z-40 flex flex-col items-end gap-2">
       {open && (
-        <div className="bg-panel border-edge pointer-events-auto flex h-[min(640px,78vh)] w-[440px] flex-col overflow-hidden rounded-2xl border shadow-2xl" role="dialog" aria-label="Ask Nahda">
+        <div className="bg-panel border-edge pointer-events-auto flex h-[min(450px,70vh)] w-[min(310px,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-2xl border shadow-2xl" role="dialog" aria-label="Ask Nahda">
           <div className="border-edge flex items-center gap-3 border-b px-4 py-3">
             <Avatar />
             <div className="min-w-0 flex-1">
