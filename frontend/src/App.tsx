@@ -216,7 +216,7 @@ function App() {
       )}
       {world && !selected && (
         <div className="fade pointer-events-none absolute top-[226px] left-5 z-10 max-w-[440px]">
-          <p className="text-[1.05rem] leading-snug">Millions still live without reliable power. See how countries that fixed it did it, and plan the comeback.</p>
+          <p className="text-[1.05rem] leading-snug">Turning the lights back on.</p>
           <p className="text-mute mt-1.5 text-[0.85rem]">Click a country, a quick pick above, or press Ctrl K to search.</p>
         </div>
       )}

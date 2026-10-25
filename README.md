@@ -2,7 +2,7 @@
 
 **MRUHacks 2026 · Theme: Revitalize**
 
-Millions still live without reliable power. See how countries that fixed it did it, and plan the comeback. Nahda helps countries below 90% electricity access plan how to close it: it finds historical peers that succeeded and recommends a solar / wind / grid & storage mix from each country's real sun and wind data.
+Turning the lights back on. Nahda helps countries below 90% electricity access plan how to close it: it finds historical peers that succeeded and recommends a solar / wind / grid & storage mix from each country's real sun and wind data.
 
 **Start:** double-click `start.bat` (opens http://localhost:5173). To share a public link, double-click `share.bat`.
 
