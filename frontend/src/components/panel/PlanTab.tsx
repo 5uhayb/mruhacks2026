@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from 'react'
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { SECTORS, type AssumptionSpec, type Country, type Simulation, type Split } from '../../api'
 import { formatCompact, formatInt, formatMoney, formatNumber, formatPct } from '../../lib/format'
 import { CountUp, Info, Section, fitDomain } from '../ui'
-import SplitBar from './SplitBar'
+import SplitBar, { SECTOR_STYLE } from './SplitBar'
 
 const AXIS = { stroke: '#4b5468', fontSize: 11, tickLine: false, axisLine: false, fontFamily: 'Geist Mono Variable' }
 export const GRID_NOTE = 'Assumes new lines connect homes; local grid studies needed.'
@@ -109,22 +109,42 @@ export default function PlanTab({ country, sim, split, setSplit, onRecommended, 
         </div>
       </Section>
 
-      <Section title="Mix">
+      <Section title="Recommended mix" right={sim ? <Info label="Method" text={`${sim.recommendation.method} Solar and wind are variable, not baseload; storage and the grid cover gaps. ${rule ?? ''}`} /> : undefined}>
         {sim && (
-          <div className="border-gold/40 bg-gold/5 flex items-start justify-between gap-3 rounded-md border px-3 py-2">
-            <div className="text-[0.88rem] leading-snug">
-              <p>
-                {sim.recommendation.banner}{' '}
-                {rule && <Info text={`Solar and wind are variable, not baseload; storage and the grid cover gaps. ${rule}`} />}
-              </p>
-              {playbookLine && <p className="text-gold mt-1 text-[0.8rem]">{playbookLine}</p>}
+          <>
+            <p className="text-mute -mt-1 mb-2 text-[0.78rem]">{sim.recommendation.method}</p>
+            <div className="border-gold/40 bg-gold/5 rounded-md border px-3 py-2.5">
+              <ul className="space-y-1.5 text-[0.86rem] leading-snug">
+                {sim.recommendation.banner.map((x) => <li key={x}>{x}</li>)}
+              </ul>
+              {playbookLine && <p className="text-gold mt-2 text-[0.8rem]">{playbookLine}</p>}
+              {!isRecommended && (
+                <button onClick={onRecommended} className="text-gold hover:text-ink mt-2 text-[0.78rem] underline underline-offset-2">Use the recommended mix</button>
+              )}
             </div>
-            {!isRecommended && (
-              <button onClick={onRecommended} className="text-gold hover:text-ink shrink-0 text-[0.78rem] underline underline-offset-2">Use recommended</button>
+            {sim.guardrails.length > 0 && (
+              <div className="border-gold bg-gold/15 mt-2 rounded-md border px-3 py-2 text-[0.82rem] leading-snug" role="alert">
+                <div className="text-gold mb-0.5 font-medium">⚠ Outside the safe limits</div>
+                <ul className="space-y-0.5">{sim.guardrails.map((g) => <li key={g}>{g}</li>)}</ul>
+              </div>
             )}
-          </div>
+          </>
         )}
         {shown && <SplitBar split={shown} setSplit={setSplit} amounts={sim?.split_amounts ?? null} />}
+        {sim && (
+          <div className="mt-4 h-[110px]">
+            <div className="text-mute mb-1 text-[0.72rem]">Spending ramps up over 10 years, per year</div>
+            <ResponsiveContainer width="100%" height="85%">
+              <BarChart data={sim.phased.map((r) => ({ ...r, year: startYear + r.year }))} margin={{ top: 2, right: 8, left: -12, bottom: 0 }}>
+                <XAxis dataKey="year" {...AXIS} interval={1} />
+                <YAxis {...AXIS} tickFormatter={(v) => formatMoney(Number(v))} width={52} />
+                <Tooltip contentStyle={{ background: '#0d1320', border: '1px solid #1e2638', borderRadius: 6, fontSize: 12 }}
+                  formatter={(v, n) => [formatMoney(Number(v), 2), SECTOR_STYLE[n as keyof typeof SECTOR_STYLE]?.label ?? String(n)]} />
+                {SECTORS.map((k) => <Bar key={k} dataKey={k} stackId="a" fill={SECTOR_STYLE[k].color} isAnimationActive={false} />)}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </Section>
 
       {sim && (
@@ -140,6 +160,7 @@ export default function PlanTab({ country, sim, split, setSplit, onRecommended, 
             </Card>
             <Card label="Grid & storage" value={<CountUp value={sim.cards.grid.km} format={(v) => formatCompact(v, 'km')} />}>
               <div>{formatCompact(sim.cards.grid.storage_mwh, 'MWh')} of storage · {formatMoney(sim.cards.grid.capex)}</div>
+              <div>{formatPct(sim.cards.grid.lines_pct, 0)} of the budget to lines, {formatPct(sim.cards.grid.storage_pct, 0)} to storage</div>
               <div>Lines reach ~{formatCompact(sim.cards.grid.households)} homes</div>
             </Card>
             <Card label="Electricity access" value={<CountUp value={sim.cards.access.value} format={(v) => formatPct(v)} />} note={GRID_NOTE}>
@@ -148,7 +169,10 @@ export default function PlanTab({ country, sim, split, setSplit, onRecommended, 
             </Card>
           </div>
 
-          <div className="mt-5 h-[160px]">
+          <p className="text-mute mt-3 text-[0.8rem]">
+            Reserve fund: {formatMoney(sim.cards.reserve.left)} kept for overruns by year 10{sim.cards.reserve.drawn > 0 ? `, ${formatMoney(sim.cards.reserve.drawn)} already used` : ' (unused in the base case)'}.
+          </p>
+          <div className="mt-4 h-[160px]">
             <div className="text-mute mb-1 flex flex-wrap gap-x-4 text-[0.75rem]">
               <span>Electricity access, %</span>
               <span><span className="bg-gold mr-1.5 inline-block h-[2px] w-3 align-middle" />With this plan</span>

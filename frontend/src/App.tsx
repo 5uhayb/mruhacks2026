@@ -160,10 +160,11 @@ function App() {
     setPlaybookLine(null)
   }, [])
 
-  // The Plan tab shows its effect on the globe: jump the timeline to the projected end year
+  // The Plan tab shows its effect on the globe: jump the timeline to the plan's final year (snapshot year + 10)
+  const planEnd = sim?.start.access_year != null ? sim.start.access_year + 10 : null
   useEffect(() => {
-    if (tab === 'Plan' && world) setYear((y) => (y == null || y <= lastMeasured ? lastMeasured + 10 : y))
-  }, [tab, world, lastMeasured])
+    if (tab === 'Plan' && world && planEnd) setYear(planEnd)
+  }, [tab, world, planEnd])
 
   if (!hasWebGL()) {
     return <main className="text-mute grid h-full place-items-center p-8">This app needs WebGL for the 3D globe. Try a recent Chrome, Edge or Firefox.</main>

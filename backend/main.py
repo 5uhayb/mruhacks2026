@@ -360,6 +360,9 @@ class Simulation(BaseModel):
     split: dict[str, float]
     split_amounts: dict[str, float]
     recommendation: dict
+    guardrails: list[str]
+    current: list[str]
+    phased: list[dict]
     start: dict
     years: list[dict]
     cards: dict
@@ -384,6 +387,7 @@ def simulate(req: SimulateRequest):
     b = electric.budget(req.iso3, a)
     rec = electric.recommend(req.iso3, a, b["total"])
     split = electric.normalize(req.split or rec["split"])
+    split_pct = dict(zip(electric.BUCKETS, (split * 100).tolist()))
     base = electric.simulate(ctx, a, b["total"], split, np.ones((1, electric.YEARS)))
     rows = [{"year": t + 1, **{k: float(base[k][0, t]) for k in ["access_pct", "clean_pct", "solar_mw", "wind_mw", "line_km", "storage_mwh"]}}
             for t in range(electric.YEARS)]
@@ -404,9 +408,11 @@ def simulate(req: SimulateRequest):
     acc10, clean10 = mc["access_pct"][:, -1], mc["clean_pct"][:, -1]
     hist = model.country_rows(req.iso3).dropna(subset=["gdp_usd"])
     return Simulation(
-        budget=b, split=dict(zip(electric.BUCKETS, (split * 100).tolist())),
+        budget=b, split=split_pct,
         split_amounts=dict(zip(electric.BUCKETS, (split * b["total"]).tolist())),
-        recommendation=rec,
+        recommendation=rec, guardrails=electric.guardrails(a, split_pct),
+        current=electric.explain(req.iso3, a, {k: int(round(v)) for k, v in split_pct.items()}, {}),
+        phased=electric.phased(b["total"], split),
         start={"access": ctx["access0"], "access_year": ctx["year"], "clean": ctx["renew0"], "clean_year": ctx["year"],
                "urban": prof["urban"], "rural": prof["rural"], "snapshot": prof["year"]},
         years=rows,
@@ -417,7 +423,9 @@ def simulate(req: SimulateRequest):
                      "payback": pay["wind"], "capacity_factor": pay["wind_cf"], "mw_per_turbine": a["mw_per_turbine"],
                      "site": prof["resources"]["wind"]},
             "grid": {"km": last["line_km"], "storage_mwh": last["storage_mwh"], "capex": float(base["grid_capex"][0, -1]),
-                     "households": last["line_km"] * a["households_per_km"]},
+                     "households": last["line_km"] * a["households_per_km"],
+                     "lines_pct": base["lines_share"] * 100, "storage_pct": base["storage_share"] * 100},
+            "reserve": {"left": float(base["reserve"][0, -1]), "drawn": float(base["reserve_drawn"][0, -1])},
             "access": {"value": last["access_pct"], "clean": last["clean_pct"], "people": float(base["people_connected"][0, -1])},
         },
         limit=str(base["limit"][0, -1]),
@@ -480,8 +488,8 @@ def advisor_data(f: dict) -> str:
         "All NASA sites (name: sunlight kWh/m2/day, 50 m wind m/s): " + "; ".join(f"{s['site']} ({s['lat']:.1f}, {s['lon']:.1f}): {s['solar']:.2f}, {s['wind']:.2f}" for s in sites) + ".",
         f"Yearly budget (estimate): ${sim.budget['total'] / 1e9:.2f} billion = {sim.budget['gdp']['share']:.1%} of GDP"
         + (f" + {sim.budget['resource']['share']:.0%} of {sim.budget['resource']['word']} income." if sim.budget["resource"]["amount"] else "."),
-        f"Recommendation: {sim.recommendation['banner']}",
-        f"Current plan: solar {sim.split['solar']:.0f}%, wind {sim.split['wind']:.0f}%, grid & storage {sim.split['grid']:.0f}%. By {end} (estimates): "
+        f"Recommendation: {' '.join(sim.recommendation['banner'])}",
+        f"Current plan: solar {sim.split['solar']:.0f}%, wind {sim.split['wind']:.0f}%, grid & storage {sim.split['grid']:.0f}%, reserve {sim.split['reserve']:.0f}%. By {end} (estimates): "
         f"{cards['solar']['mw']:,.0f} MW solar, {cards['wind']['mw']:,.0f} MW wind (~{cards['wind']['turbines']:,.0f} turbines), "
         f"{cards['grid']['km']:,.0f} km of lines, {cards['grid']['storage_mwh']:,.0f} MWh storage, access {pct(cards['access']['value'])}, clean share {pct(cards['access']['clean'])}.",
         "Peers that closed their gap (World Bank data):" if p.peers else "No peer meets the selection rule.",
@@ -510,7 +518,7 @@ def advisor_offline(req: AdvisorRequest, f: dict) -> str:
                 + ". Strongest wind at 50 m: " + ", ".join(f"{s['site']} ({s['wind']:.1f} m/s)" for s in top_wind)
                 + ". These are NASA point averages; actual sites need local resource, land and grid studies.")
     return (f"{c.name}'s best sunlight is {r['solar']['value']:.1f} kWh/m²/day ({electric.sun_word(r['solar']['value'], a)}) and best 50 m wind "
-            f"{r['wind']['value']:.1f} m/s ({electric.wind_word(r['wind']['value'], a)}). {sim.recommendation['banner']} Both are variable, so "
+            f"{r['wind']['value']:.1f} m/s ({electric.wind_word(r['wind']['value'], a)}). {sim.recommendation['banner'][0]} Both are variable, so "
             f"grid & storage carry the power to homes and cover gaps.")
 
 

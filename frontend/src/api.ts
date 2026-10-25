@@ -28,7 +28,7 @@ api.interceptors.response.use(
   },
 )
 
-export const SECTORS = ['solar', 'wind', 'grid'] as const
+export const SECTORS = ['solar', 'wind', 'grid', 'reserve'] as const
 export type Sector = (typeof SECTORS)[number]
 export type Split = Record<Sector, number>
 export type Point = { year: number; value: number }
@@ -133,13 +133,17 @@ export type Simulation = {
   budget: Budget
   split: Split
   split_amounts: Split
-  recommendation: { split: Split; banner: string; solar: number; wind: number }
+  recommendation: { split: Split; banner: string[]; method: string; capped: { solar: boolean; wind: boolean }; solar: number; wind: number }
+  guardrails: string[]
+  current: string[]
+  phased: ({ year: number } & Split)[]
   start: { access: number; access_year: number | null; clean: number; clean_year: number | null; urban: Dated; rural: Dated; snapshot: number | null }
   years: YearRow[]
   cards: {
     solar: { mw: number; capex: number; payback: number | null; mwh: number; site: BestSite }
     wind: { mw: number; turbines: number; capex: number; payback: number | null; capacity_factor: number; mw_per_turbine: number; site: BestSite }
-    grid: { km: number; storage_mwh: number; capex: number; households: number }
+    grid: { km: number; storage_mwh: number; capex: number; households: number; lines_pct: number; storage_pct: number }
+    reserve: { left: number; drawn: number }
     access: { value: number; clean: number; people: number }
   }
   limit: 'lines' | 'generation'

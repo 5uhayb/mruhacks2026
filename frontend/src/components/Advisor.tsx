@@ -13,7 +13,7 @@ function localAnswer(kind: AdvisorKind | null, name: string, sim: Simulation | n
   } else if (kind === 'siting' && sim) {
     text = `Strongest sunlight: ${sim.sites.solar.site} (${formatNumber(sim.sites.solar.value, 1)} kWh/m²/day). Strongest 50 m wind: ${sim.sites.wind.site} (${formatNumber(sim.sites.wind.value, 1)} m/s). Actual sites need local studies.`
   } else if (sim) {
-    text = `${sim.recommendation.banner} By year 10: access ${formatPct(sim.cards.access.value)}, clean share ${formatPct(sim.cards.access.clean)}.`
+    text = `${sim.recommendation.banner.join(' ')} By year 10: access ${formatPct(sim.cards.access.value)}, clean share ${formatPct(sim.cards.access.clean)}.`
   }
   return { answer: text, sources: [], mode: 'offline', label: 'Offline answer from Nahda data', meta: { detail: 'local', server_ms: 0 } }
 }

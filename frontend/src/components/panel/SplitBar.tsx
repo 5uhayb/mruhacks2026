@@ -6,6 +6,7 @@ export const SECTOR_STYLE: Record<Sector, { label: string; color: string }> = {
   solar: { label: 'Solar farms', color: '#f2a93b' },
   wind: { label: 'Wind farms', color: '#5ec8e5' },
   grid: { label: 'Grid & storage', color: '#8a94a8' },
+  reserve: { label: 'Reserve fund', color: '#3a4256' },
 }
 
 /** One bar split three ways; drag the round handles to move money between neighbouring buckets */
@@ -56,7 +57,7 @@ export default function SplitBar({ split, setSplit, amounts }: { split: Split; s
           />
         ))}
       </div>
-      <div className="mt-3 grid grid-cols-3 gap-x-3 gap-y-1 text-[0.8rem]">
+      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-[0.8rem]">
         {SECTORS.map((k, i) => (
           <div key={k} className="flex items-baseline gap-1.5">
             <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: SECTOR_STYLE[k].color }} />

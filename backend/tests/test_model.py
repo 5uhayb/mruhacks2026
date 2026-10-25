@@ -21,7 +21,7 @@ def test_solar_output_matches_formula():
 
     a = electric.params()
     ctx = {"population": 1e6, "access0": 50.0, "renew0": 0.0, "demand_mwh": 1e6, "solar": 6.0, "wind": 0.0}
-    r = electric.simulate(ctx, a, 1e9, {"solar": 100, "wind": 0, "grid": 0}, np.ones((1, electric.YEARS)))
+    r = electric.simulate(ctx, a, 1e9, {"solar": 100, "wind": 0, "grid": 0, "reserve": 0}, np.ones((1, electric.YEARS)))
     assert r["solar_mwh"][0, -1] == pytest.approx(r["solar_mw"][0, -1] * 6.0 * 365 * a["performance_ratio"])
 
 
@@ -109,37 +109,54 @@ def _plan(iso3):
     return electric, a, electric.context(iso3, a), b
 
 
-def test_recommendation_always_funds_grid_and_follows_resources():
+def test_recommendation_respects_guardrails_and_follows_resources():
     import electric
 
-    for iso3 in ["NGA", "BEN", "KEN", "COD", "BWA"]:
+    for iso3 in ["LBY", "NGA", "KEN", "BWA", "CIV", "BEN"]:
         _, a, ctx, b = _plan(iso3)
         rec = electric.recommend(iso3, a, b["total"])
         assert sum(rec["split"].values()) == 100
-        assert rec["split"]["grid"] >= electric.MIN_GRID
+        assert electric.guardrails(a, rec["split"]) == [], iso3
+        assert rec["split"]["solar"] <= a["single_source_cap"] * 100 and rec["split"]["wind"] <= a["single_source_cap"] * 100
         if ctx["wind"] < 5.0:
             assert rec["split"]["wind"] == 0, iso3
-        assert "baseload" not in rec["banner"]
+        assert len(rec["banner"]) == 3 and not any("baseload" in x for x in rec["banner"])
 
 
-def test_recommendation_changes_with_resource_data():
+def test_riskier_wind_gets_less_budget():
     import electric
 
-    _, a, _, b = _plan("NGA")
-    weak = electric.params({"wind_threshold": 9.0}, "KEN")
-    strong = electric.params({"wind_threshold": 4.0}, "KEN")
-    bk = electric.budget("KEN", weak)["total"]
-    assert electric.recommend("KEN", strong, bk)["split"]["wind"] > electric.recommend("KEN", weak, bk)["split"]["wind"]
+    bk = electric.budget("KEN", electric.params(iso3="KEN"))["total"]
+    safe = electric.recommend("KEN", electric.params({"wind_risk": 0.0}, "KEN"), bk)["split"]["wind"]
+    risky = electric.recommend("KEN", electric.params({"wind_risk": 1.0}, "KEN"), bk)["split"]["wind"]
+    assert risky < safe
+
+
+def test_guardrail_warnings_fire_outside_limits():
+    import electric
+
+    a = electric.params()
+    warnings = electric.guardrails(a, {"solar": 60, "wind": 10, "grid": 25, "reserve": 5})
+    assert len(warnings) == 4  # solar cap, lines floor, storage floor, reserve range
+
+
+def test_phased_spending_adds_up_and_reserve_fills_a_budget_cut():
+    electric, a, ctx, b = _plan("NGA")
+    split = electric.recommend("NGA", a, b["total"])["split"]
+    total = sum(sum(v for k, v in row.items() if k != "year") for row in electric.phased(b["total"], split))
+    assert total == pytest.approx(b["total"] * electric.YEARS)
+    cut = electric.simulate(ctx, a, b["total"], split, np.full((1, electric.YEARS), 0.9))
+    assert cut["reserve_drawn"][0, -1] > 0
 
 
 def test_access_is_capped_and_needs_both_lines_and_generation():
     electric, a, ctx, b = _plan("NGA")
     ones = np.ones((1, electric.YEARS))
-    full = electric.simulate(ctx, a, b["total"], {"solar": 30, "wind": 10, "grid": 60}, ones)
+    full = electric.simulate(ctx, a, b["total"], {"solar": 30, "wind": 10, "grid": 48, "reserve": 12}, ones)
     assert (full["access_pct"] <= 100).all() and (full["clean_pct"] <= 100).all()
-    no_grid = electric.simulate(ctx, a, b["total"], {"solar": 100, "wind": 0, "grid": 0}, ones)
+    no_grid = electric.simulate(ctx, a, b["total"], {"solar": 100, "wind": 0, "grid": 0, "reserve": 0}, ones)
     assert no_grid["access_pct"][0, -1] == pytest.approx(ctx["access0"])  # generation without delivery connects no one
-    no_gen = electric.simulate(ctx, a, b["total"], {"solar": 0, "wind": 0, "grid": 100}, ones)
+    no_gen = electric.simulate(ctx, a, b["total"], {"solar": 0, "wind": 0, "grid": 100, "reserve": 0}, ones)
     assert no_gen["access_pct"][0, -1] == pytest.approx(ctx["access0"])  # lines without power connect no one
 
 
