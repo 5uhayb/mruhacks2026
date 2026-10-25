@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { QuickPick, WorldCountry } from '../api'
+import type { WorldCountry } from '../api'
 import { formatPct } from '../lib/format'
 import { useLog } from '../log'
 import { Flag } from './ui'
@@ -11,10 +11,8 @@ const latestAccess = (c: WorldCountry) => {
 
 /** Top bar: wordmark, country search and quick picks. Cmd/Ctrl+K focuses search, Enter flies to the first match.
  *  Countries below 90% access are listed first, then all countries. */
-export function CommandBar({ countries, quickPicks, quickPickRule, onSelect }: {
+export function CommandBar({ countries, onSelect }: {
   countries: WorldCountry[]
-  quickPicks: QuickPick[]
-  quickPickRule: string
   onSelect: (iso3: string) => void
 }) {
   const [query, setQuery] = useState('')
@@ -114,16 +112,6 @@ export function CommandBar({ countries, quickPicks, quickPickRule, onSelect }: {
                   )
                 })}
               </div>
-            ))}
-          </div>
-        )}
-        {quickPicks.length > 0 && (
-          <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label="Quick picks">
-            {quickPicks.map((p) => (
-              <button key={p.iso3} onClick={() => onSelect(p.iso3)} title={quickPickRule}
-                className="bg-panel/90 border-edge hover:border-mute flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.76rem]">
-                <Flag iso3={p.iso3} />{p.name}<span className="num text-mute">{formatPct(p.access, 0)}</span>
-              </button>
             ))}
           </div>
         )}

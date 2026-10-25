@@ -26,19 +26,21 @@ import StressTab from './components/panel/StressTab'
 import { buildBrief } from './lib/brief'
 import { Boundary, NO_DATA, TIERS, hasWebGL, loadFeatures, setFlagCodes, type CountryFeature } from './components/ui'
 
+const DEMO_COUNTRY = 'LBY'  // the app opens on Libya unless the URL names another country
+
 // Cache per country so revisiting is instant
 const countryCache = new Map<string, Promise<Country>>()
 const peersCache = new Map<string, Promise<Peers>>()
 const cachedCountry = (iso: string) => countryCache.get(iso) ?? countryCache.set(iso, getCountry(iso)).get(iso)!
 const cachedPeers = (iso: string) => peersCache.get(iso) ?? peersCache.set(iso, getPeers(iso)).get(iso)!
 
-/** Initial state from the URL, e.g. /?c=NGA&solar=25&wind=5&grid=70&tab=Plan (no split = the recommended mix) */
+/** Initial state from the URL, e.g. /?c=NGA&tab=Plan (no split = the recommended mix). Without ?c= the demo country, Libya, opens. */
 function fromUrl() {
   const q = new URLSearchParams(window.location.search)
   const tab = q.get('tab') as Tab | null
   const has = SECTORS.every((k) => q.get(k) != null && !Number.isNaN(Number(q.get(k))))
   return {
-    selected: q.get('c'),
+    selected: q.get('c') ?? DEMO_COUNTRY,
     split: has ? (Object.fromEntries(SECTORS.map((k) => [k, Number(q.get(k))])) as Split) : null,
     tab: tab && TABS.includes(tab) ? tab : 'Profile',
   }
@@ -74,11 +76,7 @@ function App() {
           setFeatures(f)
           setSpecs(a)
           setError(null)
-          const first = w.quick_picks[0]?.iso3
-          if (first) {
-            cachedCountry(first)
-            cachedPeers(first)
-          }
+
         })
         .catch(() => {
           setError('Waiting for the backend (cd backend; python -m uvicorn main:app --port 8000)…')
@@ -198,10 +196,10 @@ function App() {
       )}
       {!world && <div className="text-mute absolute inset-0 grid place-items-center text-[0.9rem]">{error ?? 'Loading the world…'}</div>}
 
-      {world && <CommandBar countries={world.countries} quickPicks={world.quick_picks} quickPickRule={world.quick_pick_rule} onSelect={select} />}
+      {world && <CommandBar countries={world.countries} onSelect={select} />}
 
       {world && (
-        <div className="fade text-mute bg-space/70 pointer-events-none absolute top-[146px] left-5 z-10 space-y-1 rounded-md px-2.5 py-2 text-[0.72rem]">
+        <div className="fade text-mute bg-space/70 pointer-events-none absolute top-[72px] left-5 z-10 space-y-1 rounded-md px-2.5 py-2 text-[0.72rem]">
           <div className="text-ink">Electricity access ({shownYear}{shownYear > lastMeasured ? ', forecast' : ''})</div>
           <div className="flex gap-3">
             {[...TIERS].reverse().map((t) => (
@@ -215,9 +213,9 @@ function App() {
         </div>
       )}
       {world && !selected && (
-        <div className="fade pointer-events-none absolute top-[226px] left-5 z-10 max-w-[440px]">
+        <div className="fade pointer-events-none absolute top-[152px] left-5 z-10 max-w-[440px]">
           <p className="text-[1.05rem] leading-snug">Turning the lights back on.</p>
-          <p className="text-mute mt-1.5 text-[0.85rem]">Click a country, a quick pick above, or press Ctrl K to search.</p>
+          <p className="text-mute mt-1.5 text-[0.85rem]">Click a country, or press Ctrl K to search.</p>
         </div>
       )}
 

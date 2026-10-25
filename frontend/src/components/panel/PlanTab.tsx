@@ -109,10 +109,9 @@ export default function PlanTab({ country, sim, split, setSplit, onRecommended, 
         </div>
       </Section>
 
-      <Section title="Recommended mix" right={sim ? <Info label="Method" text={`${sim.recommendation.method} Solar and wind are variable, not baseload; storage and the grid cover gaps. ${rule ?? ''}`} /> : undefined}>
+      <Section title="Recommended mix" right={sim ? <Info label="How we chose it" text={`Solar and wind are variable, not baseload; storage and the grid cover gaps. ${rule ?? ''}`} /> : undefined}>
         {sim && (
           <>
-            <p className="text-mute -mt-1 mb-2 text-[0.78rem]">{sim.recommendation.method}</p>
             <div className="border-gold/40 bg-gold/5 rounded-md border px-3 py-2.5">
               <ul className="space-y-1.5 text-[0.86rem] leading-snug">
                 {sim.recommendation.banner.map((x) => <li key={x}>{x}</li>)}
