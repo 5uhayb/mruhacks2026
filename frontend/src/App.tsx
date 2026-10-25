@@ -208,7 +208,7 @@ function App() {
           </div>
           <div className="flex gap-3">
             <span><span style={{ color: NO_DATA }}>●</span> No data</span>
-            <span><span className="text-gold">✦</span> Gold tint = forecast</span>
+            {shownYear > lastMeasured && <span><span className="text-gold">✦</span> Gold tint = forecast</span>}
           </div>
         </div>
       )}
