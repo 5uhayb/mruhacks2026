@@ -132,13 +132,6 @@ def fetch_sites() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def fetch_oil_prices() -> pd.DataFrame:
-    df = pd.read_csv("https://fred.stlouisfed.org/graph/fredgraph.csv?id=MCOILBRENTEU")
-    df.columns = ["date", "brent_usd"]
-    df["brent_usd"] = pd.to_numeric(df["brent_usd"], errors="coerce")
-    return df.dropna()
-
-
 # Indicators for the machine-learning panel (every country, not just the 11 above)
 PANEL_INDICATORS = {
     "EG.ELC.ACCS.ZS": "electricity_access_pct",
@@ -409,6 +402,4 @@ if __name__ == "__main__":
         sys.exit()
     print("NASA POWER solar/wind sites...")
     fetch_sites().to_csv(DATA / "sites.csv", index=False)
-    print("Brent oil prices (FRED)...")
-    fetch_oil_prices().to_csv(DATA / "oil_prices.csv", index=False)
     print(f"Saved to {DATA}")
