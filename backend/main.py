@@ -134,7 +134,7 @@ def world():
         cached = _world_cache["data"]
         return cached.model_copy(update={"meta": Meta(detail=f"{len(cached.countries)} countries · served from memory",
                                                       server_ms=(time.time() - start) * 1000)})
-    panel, _, _ = model.load()
+    panel = model.load()
     detail = electric.access_detail()
     iso2 = iso2_codes()
     out, picks = [], []

@@ -54,7 +54,7 @@ def fmt(v: float, unit: str) -> str:
 @lru_cache
 def world() -> dict:
     """Latest value (within 5 years) and ~20-year change for every country and indicator."""
-    panel, _, _ = model.load()
+    panel = model.load()
     last = int(panel.year.max())
     out = {}
     for col in [*LEVELS, *RENTS.values()]:

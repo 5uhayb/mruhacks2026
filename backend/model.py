@@ -35,13 +35,9 @@ def default_household_size(iso3: str) -> float:
 
 
 @lru_cache
-def load():
-    """panel: every country, unfilled (each value keeps its true year). sites: hand-picked NASA sites for
-    11 countries. oil: Brent prices. The 11-country file still supplies governance scores."""
-    panel = pd.read_csv(DATA / "panel_raw.csv").sort_values(["iso3", "year"])
-    sites = pd.read_csv(DATA / "sites.csv")
-    oil = pd.read_csv(DATA / "oil_prices.csv", parse_dates=["date"])
-    return panel, sites, oil
+def load() -> pd.DataFrame:
+    """Every country's World Bank panel, unfilled (each value keeps its true year)."""
+    return pd.read_csv(DATA / "panel_raw.csv").sort_values(["iso3", "year"])
 
 
 
@@ -56,13 +52,13 @@ def extras():
 @lru_cache(maxsize=None)
 def country_rows(iso3: str) -> pd.DataFrame:
     """One country's rows (cached; treat as read-only)."""
-    panel, _, _ = load()
+    panel = load()
     return panel[panel.iso3 == iso3]
 
 
 
 def known(iso3: str) -> bool:
-    panel, _, _ = load()
+    panel = load()
     return iso3 in set(panel.iso3)
 
 
