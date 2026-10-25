@@ -5,6 +5,7 @@ mix from real resource data. Everything is computed from local files in data/ an
 Ask Nahda advisor calls an external AI service."""
 
 import json
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from contextlib import asynccontextmanager
@@ -447,9 +448,9 @@ ADVISOR_DEADLINE_S = 20
 
 
 class AdvisorRequest(BaseModel):
-    iso3: str
-    question: str = Field(..., min_length=2, max_length=500)
-    kind: str | None = Field(None, description="mix | peer | siting, for the quick-question chips")
+    iso3: str | None = None
+    question: str = Field(..., min_length=1, max_length=500)
+    kind: str | None = Field(None, description="first | peer | mix | risk | siting | peer_web")
     split: dict[str, float] | None = None
     assumptions: dict[str, float] = {}
 
@@ -493,11 +494,25 @@ def advisor_data(f: dict) -> str:
         f"{cards['solar']['mw']:,.0f} MW solar, {cards['wind']['mw']:,.0f} MW wind (~{cards['wind']['turbines']:,.0f} turbines), "
         f"{cards['grid']['km']:,.0f} km of lines, {cards['grid']['storage_mwh']:,.0f} MWh storage, access {pct(cards['access']['value'])}, clean share {pct(cards['access']['clean'])}.",
         "Peers that closed their gap (World Bank data):" if p.peers else "No peer meets the selection rule.",
-        *[f"- {x['country']} from {x['year']} ({x['similarity']:.0f}% match): {x['changed']} {x['result']}." for x in p.peers],
+        *[f"- {x['country']} from {x['year']} ({x['similarity']:.0f}% match): {x['changed']} {x['result']}."
+          + (f" Trade-off: {x['detail']['tradeoff']}" if x['detail']['tradeoff'] else "") + f" Lesson: {x['lesson']}" for x in p.peers],
+        f"Top peer: {p.peers[0]['country']} ({p.top})" if p.peers else "",
+        "Plan warnings: " + (" ".join(sim.guardrails) if sim.guardrails else "none (within the safe portfolio limits)."),
+        "Single shocks, access in year 10: " + "; ".join(f"{s['label']} {s['after']['access_pct']:.0f}% (planned {s['before']['access_pct']:.0f}%)" for s in sim.shocks.values()) + ".",
         f"Peer playbook: {p.playbook['line']}" if p.playbook else "",
         "Solar and wind are variable sources, not baseload; storage and the grid cover gaps.",
     ]
     return "\n".join(x for x in lines if x)
+
+
+GREETING = re.compile(r"^\s*(hi|hello|hey|hiya|salam|salaam|assalamu alaikum|marhaba|good (morning|afternoon|evening)|yo|sup)\b[\s!.,?]*$", re.I)
+
+
+def greet(name: str | None) -> str:
+    if name:
+        return (f"Hi! I can help you plan how {name} gets more people connected: ask what to do first, why its top peer "
+                f"succeeded, whether solar or wind fits better, or what could go wrong.")
+    return "Hi! Pick a country on the globe or a quick pick, and I'll help plan how it gets more people connected."
 
 
 def advisor_offline(req: AdvisorRequest, f: dict) -> str:
@@ -505,7 +520,18 @@ def advisor_offline(req: AdvisorRequest, f: dict) -> str:
     c, p, sim, a = f["c"], f["p"], f["sim"], f["a"]
     r = c.profile["resources"]
     q = req.question.lower()
-    kind = req.kind or ("peer" if "peer" in q or "expand" in q else "siting" if "place" in q or "where" in q else "mix")
+    kind = req.kind or ("peer" if "peer" in q or "succeed" in q or "expand" in q else "risk" if "wrong" in q or "risk" in q
+                        else "first" if "first" in q else "siting" if "place" in q or "where" in q else "mix")
+    if kind == "first":
+        rec = sim.recommendation
+        return (" ".join(rec["banner"][1:2]) + " " + rec["banner"][0]
+                + (f" Lesson from {p.peers[0]['country']}: {p.peers[0]['lesson']}" if p.peers else ""))
+    if kind == "risk":
+        worst = min(sim.shocks.values(), key=lambda s: s["after"]["access_pct"])
+        return (f"The biggest single risk is \"{worst['label']}\": access in year 10 would reach {worst['after']['access_pct']:.0f}% "
+                f"instead of {worst['before']['access_pct']:.0f}%. In 9 of 10 budget futures access still reaches "
+                f"{sim.futures['access_p10']:.0f}%. Solar and wind are variable, so the plan keeps storage and a "
+                f"{sim.split['reserve']:.0f}% reserve." + (f" Warning: {sim.guardrails[0]}" if sim.guardrails else ""))
     if kind == "peer":
         if not p.peers:
             return f"No peer meets the selection rule for {c.name} ({PEER_RULE.split(': ')[1]})"
@@ -522,11 +548,23 @@ def advisor_offline(req: AdvisorRequest, f: dict) -> str:
             f"grid & storage carry the power to homes and cover gaps.")
 
 
+@app.get("/api/advisor/status")
+def advisor_status():
+    """Whether an AI key is configured and what the last answer used (web search, AI only, or offline)."""
+    return advisor.status()
+
+
 @app.post("/api/advisor", response_model=AdvisorAnswer)
 def ask_advisor(req: AdvisorRequest):
     """Short answer for the selected country. AI keys stay on the server; falls back to app data offline."""
-    check(req.iso3)
     start = time.time()
+    name = model.latest(req.iso3)["country"] if req.iso3 and model.known(req.iso3) else None
+    if GREETING.match(req.question) or not req.iso3:
+        # Greetings get an instant friendly reply; without a country there is no data to reason about yet
+        text = greet(name)  # with no country selected, greet() asks the user to pick one
+        return AdvisorAnswer(answer=text, sources=[], mode="greeting", label="",
+                             meta=Meta(detail="advisor · greeting", server_ms=(time.time() - start) * 1000))
+    check(req.iso3)
     f = advisor_facts(req)
     job = ADVISOR_POOL.submit(advisor.ask, req.question, advisor_data(f))
     try:  # never keep the demo waiting: past the deadline, answer from app data

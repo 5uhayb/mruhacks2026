@@ -22,17 +22,35 @@ FOOTER_MODEL = "Based on Nahda data + model knowledge (web search unavailable)"
 OFFLINE = "Offline answer from Nahda data"
 
 RULES = """You are Nahda's electrification advisor, helping countries below 90% electricity access close the gap.
+Your readers are regular people and policy or investment judges: plain words, no jargon.
+How to answer:
+- Greetings or small talk: reply in 1-2 friendly sentences saying how you can help with the selected country. No bullet points.
+- Analytical questions: (1) answer directly in 1-2 sentences; (2) compare the selected country with its top peer and name the key trade-off;
+  (3) give one concrete recommendation. Stay under 140 words in total.
 Rules:
 - For every statistic about the country or the plan, use ONLY the numbers in the NAHDA DATA block. Never change, round differently, or invent numbers.
 - Use web search only for real-world context: how other countries expanded access, solar and wind deployment experience, grid and storage practice.
 - Solar and wind are variable sources; never call them baseload. Storage and the grid cover gaps.
 - Describe each peer's change exactly as written in NAHDA DATA; do not generalize patterns across peers or claim causes the data does not state.
 - Describe options and evidence; do not tell any government what it must do.
-- Answer in under 120 words, plain language, no headings, at most 4 short bullet points.
+- Plain language, no headings, at most 4 short bullet points.
 - Do not add a sources list yourself; the app adds it."""
 
 
+STATE = {"last_mode": None}  # what the last answer used, for the status dot in the app
+
+
+def status() -> dict:
+    return {"key": bool(os.getenv("GEMINI_API_KEY") or os.getenv("ANTHROPIC_API_KEY")), "last_mode": STATE["last_mode"]}
+
+
 def ask(question: str, data: str) -> dict:
+    out = _ask(question, data)
+    STATE["last_mode"] = out["mode"]
+    return out
+
+
+def _ask(question: str, data: str) -> dict:
     start = time.time()
     prompt = f"NAHDA DATA (the only source for statistics):\n{data}\n\nQUESTION: {question}"
     errors = []
@@ -55,8 +73,8 @@ def ask(question: str, data: str) -> dict:
 
 def done(text: str, sources: list[dict], mode: str, label: str, start: float) -> dict:
     words = text.split()
-    if len(words) > 140:  # hard cap in case the model runs long
-        text = " ".join(words[:120]) + "…"
+    if len(words) > 160:  # hard cap in case the model runs long
+        text = " ".join(words[:140]) + "…"
     return {"answer": text.strip(), "sources": sources[:5], "mode": mode, "label": label, "errors": [],
             "ms": (time.time() - start) * 1000}
 

@@ -168,12 +168,14 @@ export type AssumptionSpec = { group: string; value: number; min: number; max: n
 export type SimulateInput = { iso3: string; split: Split | null; assumptions: Record<string, number> }
 
 export type AdvisorKind = 'mix' | 'peer' | 'siting' | 'first' | 'risk' | 'peer_web'
-export type AdvisorAnswer = { answer: string; sources: { title: string; url: string }[]; mode: 'web' | 'model' | 'offline'; label: string; meta: Meta }
+export type AdvisorAnswer = { answer: string; sources: { title: string; url: string }[]; mode: 'web' | 'model' | 'offline' | 'greeting'; label: string; meta: Meta }
+export type AdvisorStatus = { key: boolean; last_mode: AdvisorAnswer['mode'] | null }
 
 export const getWorld = async () => (await api.get<World>('/world')).data
 export const getCountry = async (iso3: string) => (await api.get<Country>(`/country/${iso3}`)).data
 export const getPeers = async (iso3: string) => (await api.get<Peers>(`/peers/${iso3}`)).data
 export const simulate = async (input: SimulateInput) => (await api.post<Simulation>('/simulate', input)).data
 export const getAssumptions = async () => (await api.get<Record<string, AssumptionSpec>>('/assumptions')).data
-export const askAdvisor = async (input: SimulateInput & { question: string; kind: AdvisorKind | null }) =>
+export const getAdvisorStatus = async () => (await api.get<AdvisorStatus>('/advisor/status')).data
+export const askAdvisor = async (input: Omit<SimulateInput, 'iso3'> & { iso3: string | null; question: string; kind: AdvisorKind | null }) =>
   (await api.post<AdvisorAnswer>('/advisor', input, { timeout: 45000 })).data

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { askAdvisor, type AdvisorAnswer, type AdvisorKind, type Peers, type Simulation, type Split } from '../api'
+import { askAdvisor, getAdvisorStatus, type AdvisorAnswer, type AdvisorKind, type Peers, type Simulation, type Split } from '../api'
 import { formatNumber, formatPct } from '../lib/format'
 
 type Entry = { question: string; answer: AdvisorAnswer | null }
@@ -7,7 +7,12 @@ type Entry = { question: string; answer: AdvisorAnswer | null }
 /** Last resort if the backend itself cannot be reached: a template from what this page already has */
 function localAnswer(kind: AdvisorKind | null, name: string, sim: Simulation | null, peers: Peers | null): AdvisorAnswer {
   let text = `Nahda data for ${name} is still loading.`
-  if (kind === 'peer' && peers) {
+  if (kind === 'first' && sim) {
+    text = sim.recommendation.banner.join(' ')
+  } else if (kind === 'risk' && sim) {
+    const worst = Object.values(sim.shocks).sort((a, b) => a.after.access_pct - b.after.access_pct)[0]
+    text = `The biggest single risk is "${worst.label}": access in year 10 would reach ${formatPct(worst.after.access_pct, 0)} instead of ${formatPct(worst.before.access_pct, 0)}.`
+  } else if (kind === 'peer' && peers) {
     const p = peers.peers[0]
     text = p ? `${p.country} from ${p.year}: ${p.changed} ${p.result}.` : `No peer meets the selection rule for ${name}.`
   } else if (kind === 'siting' && sim) {
@@ -27,6 +32,12 @@ export default function Advisor({ iso3, name, split, overrides, sim, peers }: {
   peers: Peers | null
 }) {
   const [open, setOpen] = useState(false)
+  // What the advisor can really do right now: set from the server, then from each answer's source
+  const [mode, setMode] = useState<AdvisorAnswer['mode'] | 'nokey' | null>(null)
+  useEffect(() => {
+    if (!open) return
+    getAdvisorStatus().then((s) => setMode((m) => m ?? (s.key ? s.last_mode : 'nokey'))).catch(() => setMode('offline'))
+  }, [open])
   const [entries, setEntries] = useState<Entry[]>([])
   const [text, setText] = useState('')
   const end = useRef<HTMLDivElement>(null)
@@ -37,19 +48,20 @@ export default function Advisor({ iso3, name, split, overrides, sim, peers }: {
 
   const busy = entries.some((e) => !e.answer)
   async function ask(question: string, kind: AdvisorKind | null) {
-    if (!iso3 || !name || busy) return
+    if (busy) return
     setEntries((e) => [...e, { question, answer: null }])
     let answer: AdvisorAnswer
     try {
       answer = await askAdvisor({ iso3, question, kind, split, assumptions: overrides })
     } catch {
-      answer = localAnswer(kind, name, sim, peers)
+      answer = localAnswer(kind, name ?? 'this country', sim, peers)
     }
+    if (answer.mode !== 'greeting') setMode(answer.mode)
     setEntries((e) => e.map((x, i) => (i === e.length - 1 ? { ...x, answer } : x)))
   }
 
   const chips: [string, AdvisorKind][] = name
-    ? [[`Why solar vs wind for ${name}?`, 'mix'], [`How did ${peers?.peers[0]?.country ?? 'its top peer'} expand access?`, 'peer'], [`Where could ${name} place solar and wind?`, 'siting']]
+    ? [[`What should ${name} do first?`, 'first'], [`Why did ${peers?.peers[0]?.country ?? 'its best peer'} succeed?`, 'peer'], ['Is solar or wind smarter here?', 'mix'], ['What could go wrong with this plan?', 'risk']]
     : []
 
   return (
@@ -57,12 +69,19 @@ export default function Advisor({ iso3, name, split, overrides, sim, peers }: {
       {open && (
         <div className="bg-panel border-edge pointer-events-auto flex max-h-[70vh] w-[400px] flex-col rounded-md border shadow-2xl" role="dialog" aria-label="Ask Nahda">
           <div className="border-edge flex items-center justify-between border-b px-4 py-2.5">
-            <span className="text-[0.9rem] font-medium">Ask Nahda{name ? ` · ${name}` : ''}</span>
+            <div>
+              <div className="text-[0.9rem] font-medium">Ask Nahda{name ? ` · ${name}` : ''}</div>
+              <div className="text-mute flex items-center gap-1.5 text-[0.7rem]" aria-label="Advisor status">
+                <span className="inline-block h-2 w-2 rounded-full" style={{ background: mode === 'web' ? '#22c55e' : mode === 'model' || mode === null ? '#f59e0b' : '#9ca3af' }} />
+                {mode === 'web' ? 'Live AI + Web Search' : mode === 'model' ? 'Live AI · web search unavailable' : mode === null ? 'Live AI' : 'Offline Data Mode'}
+              </div>
+            </div>
             <button onClick={() => setOpen(false)} className="text-mute hover:text-ink text-[0.8rem]" aria-label="Close advisor">Close</button>
           </div>
           <div className="scroll-thin flex-1 space-y-4 overflow-y-auto px-4 py-3 text-[0.84rem] leading-snug">
-            {!iso3 && <p className="text-mute">Pick a country on the globe first.</p>}
-            {iso3 && entries.length === 0 && <p className="text-mute">Answers use Nahda's numbers for {name}; web search adds real-world context.</p>}
+            {entries.length === 0 && (
+              <p className="text-mute">{iso3 ? `Answers use Nahda's numbers for ${name}; web search adds real-world context when available.` : 'Say hello, or pick a country to ask about its plan.'}</p>
+            )}
             {entries.map((e, i) => (
               <div key={i}>
                 <div className="text-gold mb-1">{e.question}</div>
@@ -76,27 +95,25 @@ export default function Advisor({ iso3, name, split, overrides, sim, peers }: {
                         ))}
                       </ol>
                     )}
-                    <div className={`mt-1.5 text-[0.7rem] ${e.answer.mode === 'offline' ? 'text-gold/80' : 'text-faint'}`}>{e.answer.label}</div>
+                    {e.answer.label && <div className={`mt-1.5 text-[0.7rem] ${e.answer.mode === 'offline' ? 'text-gold/80' : 'text-faint'}`}>{e.answer.label}</div>}
                   </>
                 )}
               </div>
             ))}
             <div ref={end} />
           </div>
-          {iso3 && (
-            <div className="border-edge space-y-2 border-t px-4 py-3">
-              <div className="flex flex-wrap gap-1.5">
+          <div className="border-edge space-y-2 border-t px-4 py-3">
+              {iso3 && <div className="flex flex-wrap gap-1.5">
                 {chips.map(([q, k]) => (
                   <button key={k} onClick={() => ask(q, k)} disabled={busy}
                     className="border-edge text-mute hover:text-ink hover:border-mute rounded-full border px-2.5 py-1 text-left text-[0.74rem] disabled:opacity-50">{q}</button>
                 ))}
-              </div>
-              <form onSubmit={(ev) => { ev.preventDefault(); if (text.trim().length > 1) { ask(text.trim(), null); setText('') } }}>
-                <input type="text" value={text} onChange={(ev) => setText(ev.target.value)} placeholder={`Ask about ${name}…`} disabled={busy}
+              </div>}
+              <form onSubmit={(ev) => { ev.preventDefault(); if (text.trim()) { ask(text.trim(), null); setText('') } }}>
+                <input type="text" value={text} onChange={(ev) => setText(ev.target.value)} placeholder={name ? `Ask about ${name}…` : 'Say hello…'} disabled={busy}
                   className="w-full px-3 py-1.5 text-[0.84rem]" aria-label="Question" />
               </form>
-            </div>
-          )}
+          </div>
         </div>
       )}
       <button onClick={() => setOpen(!open)}
